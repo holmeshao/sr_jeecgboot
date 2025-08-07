@@ -1,7 +1,6 @@
 package org.jeecg.dataingest.service;
 
 import com.alibaba.fastjson2.JSONObject;
-import org.jeecg.dataingest.entity.DataIngestModuleDataCdcTable;
 
 /**
  * NiFi通知服务接口

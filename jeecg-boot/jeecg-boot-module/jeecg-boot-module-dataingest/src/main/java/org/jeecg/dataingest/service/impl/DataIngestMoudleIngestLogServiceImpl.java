@@ -10,7 +10,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 /**
  * @Description: data_ingest_moudle_ingest_log
  * @Author: jeecg-boot
- * @Date:   2025-07-22
+ * @Date:   2025-08-07
  * @Version: V1.0
  */
 @Service

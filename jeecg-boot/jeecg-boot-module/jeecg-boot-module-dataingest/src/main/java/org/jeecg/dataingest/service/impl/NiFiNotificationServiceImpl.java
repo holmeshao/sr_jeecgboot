@@ -3,7 +3,6 @@ package org.jeecg.dataingest.service.impl;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
-import org.jeecg.dataingest.entity.DataIngestModuleDataCdcTable;
 import org.jeecg.dataingest.service.INiFiNotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;

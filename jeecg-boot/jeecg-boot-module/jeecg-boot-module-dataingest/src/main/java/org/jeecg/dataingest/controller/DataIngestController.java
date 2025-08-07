@@ -2,13 +2,10 @@ package org.jeecg.dataingest.controller;
 
 import com.alibaba.fastjson2.JSONObject;
 import org.jeecg.common.api.vo.Result;
-import org.jeecg.dataingest.entity.DataIngestModuleIngestTask;
-import org.jeecg.dataingest.service.IDataIngestModuleIngestTaskService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.Date;
 
 /**
  * 数据接入服务控制器（简化版）

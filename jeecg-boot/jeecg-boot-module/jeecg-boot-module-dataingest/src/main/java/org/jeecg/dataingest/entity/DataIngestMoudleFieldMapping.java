@@ -1,4 +1,4 @@
-package org.jeecg.modules.demo.org.jeecg.dataingest.entity;
+package org.jeecg.dataingest.entity;
 
 import java.io.Serializable;
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -30,48 +30,48 @@ public class DataIngestMoudleFieldMapping implements Serializable {
 	/**主键*/
 	@TableId(type = IdType.ASSIGN_ID)
     @Schema(description = "主键")
-    private java.lang.String id;
+    private String id;
 	/**任务ID*/
     @Schema(description = "任务ID")
-    private java.lang.String taskId;
+    private String taskId;
 	/**源字段名*/
 	@Excel(name = "源字段名", width = 15)
     @Schema(description = "源字段名")
-    private java.lang.String sourceField;
+    private String sourceField;
 	/**目标字段名*/
 	@Excel(name = "目标字段名", width = 15)
     @Schema(description = "目标字段名")
-    private java.lang.String targetField;
+    private String targetField;
 	/**字段类型*/
 	@Excel(name = "字段类型", width = 15)
     @Schema(description = "字段类型")
-    private java.lang.String fieldType;
+    private String fieldType;
 	/**是否必填*/
 	@Excel(name = "是否必填", width = 15)
     @Schema(description = "是否必填")
-    private java.lang.String isRequired;
+    private String isRequired;
 	/**默认值*/
 	@Excel(name = "默认值", width = 15)
     @Schema(description = "默认值")
-    private java.lang.String defaultValue;
+    private String defaultValue;
 	/**转换规则*/
 	@Excel(name = "转换规则", width = 15)
     @Schema(description = "转换规则")
-    private java.lang.String transformRule;
+    private String transformRule;
 	/**createBy*/
     @Schema(description = "createBy")
-    private java.lang.String createBy;
+    private String createBy;
 	/**createTime*/
 	@JsonFormat(timezone = "GMT+8",pattern = "yyyy-MM-dd")
     @DateTimeFormat(pattern="yyyy-MM-dd")
     @Schema(description = "createTime")
-    private java.util.Date createTime;
+    private Date createTime;
 	/**updateBy*/
     @Schema(description = "updateBy")
-    private java.lang.String updateBy;
+    private String updateBy;
 	/**updateTime*/
 	@JsonFormat(timezone = "GMT+8",pattern = "yyyy-MM-dd")
     @DateTimeFormat(pattern="yyyy-MM-dd")
     @Schema(description = "updateTime")
-    private java.util.Date updateTime;
+    private Date updateTime;
 }
