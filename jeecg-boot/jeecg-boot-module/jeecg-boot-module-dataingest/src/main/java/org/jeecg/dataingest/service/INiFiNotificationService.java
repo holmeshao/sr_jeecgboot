@@ -1,6 +1,7 @@
 package org.jeecg.dataingest.service;
 
 import com.alibaba.fastjson2.JSONObject;
+import org.jeecg.dataingest.entity.DataIngestMoudleDataCdcTable;
 
 /**
  * NiFi通知服务接口
@@ -25,7 +26,7 @@ public interface INiFiNotificationService {
      * @param changeData 变更数据
      * @return 是否成功
      */
-    boolean triggerDwdProcessor(DataIngestModuleDataCdcTable cdcConfig, JSONObject changeData);
+    boolean triggerDwdProcessor(DataIngestMoudleDataCdcTable cdcConfig, JSONObject changeData);
 
     /**
      * 触发DWS层处理
@@ -33,7 +34,7 @@ public interface INiFiNotificationService {
      * @param changeData 变更数据
      * @return 是否成功
      */
-    boolean triggerDwsProcessor(DataIngestModuleDataCdcTable cdcConfig, JSONObject changeData);
+    boolean triggerDwsProcessor(DataIngestMoudleDataCdcTable cdcConfig, JSONObject changeData);
 
     /**
      * 批量触发处理器

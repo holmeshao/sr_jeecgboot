@@ -3,7 +3,7 @@ package org.jeecg.dataingest.scheduler.job;
 import com.xxl.job.core.context.XxlJobHelper;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.extern.slf4j.Slf4j;
-import org.jeecg.dataingest.core.entity.IngestTask;
+import org.jeecg.dataingest.entity.DataIngestMoudleIngestTask;
 import org.jeecg.dataingest.core.service.IDataIngestService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -30,7 +30,7 @@ public class DataIngestJobHandler {
         log.info("开始执行金蝶数据接入任务");
         try {
             // TODO: 从配置中获取金蝶任务信息
-            IngestTask task = new IngestTask();
+            DataIngestMoudleIngestTask task = new DataIngestMoudleIngestTask();
             task.setTaskName("金蝶数据接入");
             task.setTaskType("API");
             
@@ -54,7 +54,7 @@ public class DataIngestJobHandler {
         log.info("开始执行通用API数据接入任务");
         try {
             // TODO: 从配置中获取API任务信息
-            IngestTask task = new IngestTask();
+            DataIngestMoudleIngestTask task = new DataIngestMoudleIngestTask();
             task.setTaskName("通用API数据接入");
             task.setTaskType("API");
             
@@ -78,7 +78,7 @@ public class DataIngestJobHandler {
         log.info("开始执行文件数据接入任务");
         try {
             // TODO: 从配置中获取文件任务信息
-            IngestTask task = new IngestTask();
+            DataIngestMoudleIngestTask task = new DataIngestMoudleIngestTask();
             task.setTaskName("文件数据接入");
             task.setTaskType("FILE");
             

@@ -3,6 +3,7 @@ package org.jeecg.dataingest.service.impl;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
+import org.jeecg.dataingest.entity.DataIngestMoudleDataCdcTable;
 import org.jeecg.dataingest.service.INiFiNotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -108,7 +109,7 @@ public class NiFiNotificationServiceImpl implements INiFiNotificationService {
     }
 
     @Override
-    public boolean triggerDwdProcessor(DataIngestModuleDataCdcTable cdcConfig, JSONObject changeData) {
+    public boolean triggerDwdProcessor(DataIngestMoudleDataCdcTable cdcConfig, JSONObject changeData) {
         if (cdcConfig.getNifiDwdProcessorId() == null || cdcConfig.getNifiDwdProcessorId().trim().isEmpty()) {
             log.debug("DWD处理器ID为空，跳过DWD层通知: {}", cdcConfig.getSourceTableName());
             return false;
@@ -141,7 +142,7 @@ public class NiFiNotificationServiceImpl implements INiFiNotificationService {
     }
 
     @Override
-    public boolean triggerDwsProcessor(DataIngestModuleDataCdcTable cdcConfig, JSONObject changeData) {
+    public boolean triggerDwsProcessor(DataIngestMoudleDataCdcTable cdcConfig, JSONObject changeData) {
         if (cdcConfig.getNifiDwsProcessorId() == null || cdcConfig.getNifiDwsProcessorId().trim().isEmpty()) {
             log.debug("DWS处理器ID为空，跳过DWS层通知: {}", cdcConfig.getSourceTableName());
             return false;
@@ -235,25 +236,22 @@ public class NiFiNotificationServiceImpl implements INiFiNotificationService {
     /**
      * 根据通知模式决定触发策略
      */
-    public boolean triggerByNotifyMode(DataIngestModuleDataCdcTable cdcConfig, JSONObject changeData) {
-        if (cdcConfig.getEnableNifiNotify() == null || !"1".equals(cdcConfig.getEnableNifiNotify())) {
+    public boolean triggerByNotifyMode(DataIngestMoudleDataCdcTable cdcConfig, JSONObject changeData) {
+        if (cdcConfig.getEnableNifiNotify() == null || cdcConfig.getEnableNifiNotify() != 1) {
             log.debug("NiFi通知未启用: {}", cdcConfig.getSourceTableName());
             return false;
         }
 
-        String notifyModeStr = cdcConfig.getNifiNotifyMode();
-        int notifyMode = 1; // 默认立即通知
-        if (notifyModeStr != null && !notifyModeStr.isEmpty()) {
-            try {
-                notifyMode = Integer.parseInt(notifyModeStr);
-            } catch (NumberFormatException e) {
-                log.warn("无效的通知模式: {}, 使用默认值1", notifyModeStr);
-            }
+        Integer notifyMode = cdcConfig.getNifiNotifyMode();
+        if (notifyMode == null) {
+            notifyMode = 1; // 默认立即通知
         }
 
         switch (notifyMode) {
             case 1: // 立即通知
-                return triggerDwdProcessor(cdcConfig, changeData);
+                boolean dwdResult = triggerDwdProcessor(cdcConfig, changeData);
+                boolean dwsResult = triggerDwsProcessor(cdcConfig, changeData);
+                return dwdResult || dwsResult; // 只要有一个成功就返回true
             case 2: // 批量通知
                 log.debug("批量通知模式，数据已缓存: {}", cdcConfig.getSourceTableName());
                 // TODO: 实现批量通知逻辑
@@ -264,7 +262,9 @@ public class NiFiNotificationServiceImpl implements INiFiNotificationService {
                 return true;
             default:
                 log.warn("未知的通知模式: {}, 使用立即通知", notifyMode);
-                return triggerDwdProcessor(cdcConfig, changeData);
+                boolean defaultDwdResult = triggerDwdProcessor(cdcConfig, changeData);
+                boolean defaultDwsResult = triggerDwsProcessor(cdcConfig, changeData);
+                return defaultDwdResult || defaultDwsResult;
         }
     }
 } 

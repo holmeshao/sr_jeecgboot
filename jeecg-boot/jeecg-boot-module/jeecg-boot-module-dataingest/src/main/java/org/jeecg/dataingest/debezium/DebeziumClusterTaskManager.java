@@ -15,11 +15,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.jeecg.dataingest.entity.DataIngestMoudleDataCdcTable;
+import org.jeecg.dataingest.service.INiFiNotificationService;
+import org.jeecg.dataingest.service.IDataIngestMoudleDataCdcTableService;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.net.InetAddress;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +44,12 @@ public class DebeziumClusterTaskManager {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private INiFiNotificationService nifiNotificationService;
+
+    @Autowired
+    private IDataIngestMoudleDataCdcTableService cdcTableService;
 
     @Value("${server.port:8080}")
     private String serverPort;
@@ -429,8 +439,8 @@ public class DebeziumClusterTaskManager {
                 // 更新统计信息到Redis
                 updateStatistics(taskId, true);
                 
-                // 这里可以添加数据处理逻辑
-                // processChangeEvent(taskId, changeEvent, config);
+                // 处理变更事件并触发NiFi通知
+                processChangeEvent(taskId, changeEvent, config);
             }
         } catch (Exception e) {
             log.error("处理CDC事件失败: taskId={}, node={}", taskId, nodeId, e);
@@ -597,6 +607,97 @@ public class DebeziumClusterTaskManager {
         }
         
         log.info("集群Debezium任务管理器销毁完成: {}", nodeId);
+    }
+
+    /**
+     * 处理CDC变更事件并触发NiFi通知
+     */
+    private void processChangeEvent(String taskId, JSONObject changeEvent, DebeziumTaskConfig config) {
+        try {
+            // 解析变更事件
+            JSONObject payload = changeEvent.getJSONObject("payload");
+            if (payload == null) {
+                log.debug("CDC事件payload为空，跳过处理: taskId={}", taskId);
+                return;
+            }
+
+            // 获取表信息
+            JSONObject source = payload.getJSONObject("source");
+            if (source == null) {
+                log.debug("CDC事件source信息为空，跳过处理: taskId={}", taskId);
+                return;
+            }
+
+            String sourceTable = source.getString("table");
+            String database = source.getString("db");
+            String operation = payload.getString("op"); // c=create, u=update, d=delete
+
+            if (sourceTable == null || sourceTable.trim().isEmpty()) {
+                log.debug("源表名为空，跳过处理: taskId={}", taskId);
+                return;
+            }
+
+            log.debug("处理CDC事件: taskId={}, database={}, table={}, operation={}", 
+                     taskId, database, sourceTable, operation);
+
+            // 根据taskId查询对应的CDC表配置
+            List<DataIngestMoudleDataCdcTable> cdcTables = cdcTableService.selectByMainId(taskId);
+            
+            if (cdcTables == null || cdcTables.isEmpty()) {
+                log.debug("未找到taskId对应的CDC表配置: {}", taskId);
+                return;
+            }
+
+            // 查找匹配的CDC表配置
+            DataIngestMoudleDataCdcTable matchedCdcConfig = null;
+            for (DataIngestMoudleDataCdcTable cdcTable : cdcTables) {
+                if (sourceTable.equals(cdcTable.getSourceTableName())) {
+                    matchedCdcConfig = cdcTable;
+                    break;
+                }
+            }
+
+            if (matchedCdcConfig == null) {
+                log.debug("未找到源表{}对应的CDC配置: taskId={}", sourceTable, taskId);
+                return;
+            }
+
+            // 构建变更数据
+            JSONObject changeData = new JSONObject();
+            changeData.put("taskId", taskId);
+            changeData.put("sourceDatabase", database);
+            changeData.put("sourceTable", sourceTable);
+            changeData.put("targetTable", matchedCdcConfig.getTargetTableName());
+            changeData.put("operation", operation);
+            changeData.put("timestamp", System.currentTimeMillis());
+            
+            // 添加具体的变更数据
+            if ("d".equals(operation)) {
+                // DELETE操作，数据在before中
+                changeData.put("beforeData", payload.getJSONObject("before"));
+            } else if ("c".equals(operation)) {
+                // CREATE操作，数据在after中
+                changeData.put("afterData", payload.getJSONObject("after"));
+            } else if ("u".equals(operation)) {
+                // UPDATE操作，before和after都有
+                changeData.put("beforeData", payload.getJSONObject("before"));
+                changeData.put("afterData", payload.getJSONObject("after"));
+            }
+
+            // 触发NiFi通知
+            boolean notifyResult = nifiNotificationService.triggerByNotifyMode(matchedCdcConfig, changeData);
+            
+            if (notifyResult) {
+                log.debug("NiFi通知触发成功: taskId={}, table={}, operation={}", 
+                         taskId, sourceTable, operation);
+            } else {
+                log.warn("NiFi通知触发失败: taskId={}, table={}, operation={}", 
+                        taskId, sourceTable, operation);
+            }
+
+        } catch (Exception e) {
+            log.error("处理CDC变更事件异常: taskId={}", taskId, e);
+        }
     }
 
     /**
