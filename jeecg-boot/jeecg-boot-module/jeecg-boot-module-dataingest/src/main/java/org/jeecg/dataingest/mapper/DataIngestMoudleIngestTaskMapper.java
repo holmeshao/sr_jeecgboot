@@ -2,6 +2,7 @@ package org.jeecg.dataingest.mapper;
 
 import java.util.List;
 
+import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.jeecg.dataingest.entity.DataIngestMoudleIngestTask;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
@@ -12,6 +13,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
  * @Date:   2025-08-07
  * @Version: V1.0
  */
+@Mapper
 public interface DataIngestMoudleIngestTaskMapper extends BaseMapper<DataIngestMoudleIngestTask> {
 
 }
