@@ -1,0 +1,65 @@
+version: '2'
+services:
+  jeecg-boot-pgsql:
+    build:
+      context: ../../db_pgsql
+    environment:
+      POSTGRES_DB: jeecg-boot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Shanghai
+      PGDATA: /var/lib/postgresql/data/pgdata
+    restart: always
+    container_name: jeecg-boot-pgsql
+    image: jeecg-boot-pgsql
+    ports:
+      - 5432:5432
+    volumes:
+      - /opt/database/pgsql/data:/var/lib/postgresql/data
+      - /opt/database/pgsql/logs:/var/log/postgresql
+      - /opt/database/pgsql/backup:/opt/backup
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-redis:
+    image: registry.cn-hangzhou.aliyuncs.com/jeecgdocker/redis:5.0
+    ports:
+      - 6379:6379
+    restart: always
+    container_name: jeecg-boot-redis
+    hostname: jeecg-boot-redis
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-nacos:
+    restart: always
+    build:
+      context: ../../jeecg-server-cloud/jeecg-cloud-nacos
+    ports:
+      - 8848:8848
+      - 9848:9848
+      - 9849:9849
+    container_name: jeecg-boot-nacos
+    hostname: jeecg-boot-nacos
+    depends_on:
+      - jeecg-boot-pgsql
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-dataingest:
+    depends_on:
+      - jeecg-boot-nacos
+      - jeecg-boot-redis
+    build:
+      context: .
+    container_name: jeecg-dataingest-start
+    hostname: jeecg-boot-dataingest
+    restart: on-failure
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - jeecg-boot
+
+networks:
+  jeecg-boot:
+    name: jeecg_boot 

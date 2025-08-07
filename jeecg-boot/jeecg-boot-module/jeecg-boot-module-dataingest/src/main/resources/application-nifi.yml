@@ -1,0 +1,52 @@
+# NiFi集成配置
+nifi:
+  api:
+    # NiFi API基础URL
+    base-url: http://localhost:8080/nifi-api
+    # API请求超时时间(毫秒)
+    timeout: 5000
+    # 连接超时时间(毫秒)
+    connect-timeout: 3000
+    # 读取超时时间(毫秒)
+    read-timeout: 5000
+  
+  notification:
+    # 是否启用NiFi通知
+    enabled: true
+    # 是否异步通知(true=异步, false=同步)
+    async: true
+    # 重试次数
+    retry-times: 3
+    # 重试间隔(毫秒)
+    retry-interval: 1000
+    # 批量通知大小
+    batch-size: 100
+    # 批量通知间隔(秒)
+    batch-interval: 30
+  
+  # 业务域到处理器映射(可选配置)
+  business-domain-mapping:
+    contract: "contract-domain-processor-id"
+    project: "project-domain-processor-id"
+    finance: "finance-domain-processor-id"
+    
+  # 默认处理器配置
+  default-processors:
+    dwd: "default-dwd-processor-id"
+    dws: "default-dws-processor-id"
+
+# Spring Boot配置
+spring:
+  # 如果需要自定义RestTemplate配置
+  http:
+    client:
+      timeout:
+        connection: 3000
+        read: 5000
+        write: 5000
+
+# 日志配置
+logging:
+  level:
+    org.jeecg.dataingest.service.impl.NiFiNotificationServiceImpl: DEBUG
+    org.jeecg.dataingest.debezium.DebeziumTaskManager: DEBUG 

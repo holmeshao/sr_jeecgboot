@@ -1,0 +1,280 @@
+version: '2'
+services:
+#  jeecg-boot-mysql:
+#    build:
+#      context: ./jeecg-boot/db
+#    environment:
+#      MYSQL_ROOT_PASSWORD: root
+#      MYSQL_ROOT_HOST: '%'
+#      TZ: Asia/Shanghai
+#    restart: always
+#    container_name: jeecg-boot-mysql
+#    image: jeecg-boot-mysql
+#    command:
+#      --character-set-server=utf8mb4
+#      --collation-server=utf8mb4_general_ci
+#      --explicit_defaults_for_timestamp=true
+#      --lower_case_table_names=1
+#      --max_allowed_packet=128M
+#      --default-authentication-plugin=caching_sha2_password
+#    ports:
+#      - 3306:3306
+#    networks:
+#      - jeecg-boot
+
+
+  jeecg-boot-nifi:
+    image: apache/nifi:1.25.0
+    container_name: jeecg-boot-nifi
+    ports:
+      - 8089:8080
+    environment:
+      - NIFI_WEB_HTTP_PORT=8080
+      - SINGLE_USER_CREDENTIALS_USERNAME=admin
+      - SINGLE_USER_CREDENTIALS_PASSWORD=123
+    volumes:
+      # - /opt/docker/nifi/conf/nifi.properties:/opt/nifi/nifi-current/conf/nifi.properties:Z
+      - /opt/docker/nifi/database_repository:/opt/nifi/nifi-current/database_repository
+      - /opt/docker/nifi/flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - /opt/docker/nifi/content_repository:/opt/nifi/nifi-current/content_repository
+      - /opt/docker/nifi/provenance_repository:/opt/nifi/nifi-current/provenance_repository
+      - /opt/docker/nifi/logs:/opt/nifi/nifi-current/logs
+    restart: always
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-pgsql:
+    build:
+      context: ./jeecg-boot/db_pgsql
+    environment:
+      POSTGRES_DB: jeecg-boot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Shanghai
+      PGDATA: /var/lib/postgresql/data/pgdata
+    restart: always
+    container_name: jeecg-boot-pgsql
+    image: jeecg-boot-pgsql
+    ports:
+      - 5432:5432
+    volumes:
+      - /opt/database/pgsql/data:/var/lib/postgresql/data
+      - /opt/database/pgsql/logs:/var/log/postgresql
+      - /opt/database/pgsql/backup:/opt/backup
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_wal_senders=0"
+      - "-c"
+      - "logging_collector=on"
+      - "-c"
+      - "log_destination=stderr"
+      - "-c"
+      - "log_directory=/var/log/postgresql"
+      - "-c"
+      - "log_filename=postgresql-%Y-%m-%d_%H%M%S.log"
+      - "-c"
+      - "log_rotation_age=1d"
+      - "-c"
+      - "log_rotation_size=100MB"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_checkpoints=on"
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_disconnections=on"
+      - "-c"
+      - "log_lock_waits=on"
+      - "-c"
+      - "log_temp_files=0"
+      - "-c"
+      - "log_autovacuum_min_duration=0"
+      - "-c"
+      - "log_error_verbosity=verbose"
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-redis:
+    image: registry.cn-hangzhou.aliyuncs.com/jeecgdocker/redis:5.0
+    ports:
+      - 6379:6379
+    restart: always
+    hostname: jeecg-boot-redis
+    container_name: jeecg-boot-redis
+    volumes:
+      - /opt/docker/redis/data:/data
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-nacos:
+    image: nacos/nacos-server:v2.5.1
+    restart: always
+    ports:
+      - 8848:8848
+      - 9848:9848
+      - 9849:9849
+    container_name: jeecg-boot-nacos
+    depends_on:
+      - jeecg-boot-pgsql
+    hostname: jeecg-boot-nacos
+    environment:
+      - MODE=standalone
+      - NACOS_AUTH_ENABLE=false
+      - SPRING_DATASOURCE_PLATFORM=postgresql
+      - DB_NUM=1
+      - DB_URL_0=jdbc:postgresql://jeecg-boot-pgsql:5432/nacos?stringtype=unspecified
+      - DB_USER_0=postgres
+      - DB_PASSWORD_0=postgres
+      - DB_POOL_CONFIG_DRIVERCLASSNAME=org.postgresql.Driver
+    volumes:
+      - /opt/docker/nacos/nacos-plugins:/home/nacos/plugins
+      - /opt/docker/nacos/logs:/home/nacos/logs
+      # - /opt/docker/nacos/conf:/home/nacos/conf
+      # - /opt/docker/nacos/data:/home/nacos/data
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-system:
+    depends_on:
+      - jeecg-boot-nacos
+    build:
+      context: ./jeecg-boot/jeecg-server-cloud/jeecg-system-cloud-start
+    container_name: jeecg-system-start
+    hostname: jeecg-boot-system
+    restart: on-failure
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /opt/docker/system/logs:/logs
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-demo:
+    depends_on:
+      - jeecg-boot-nacos
+    build:
+      context: ./jeecg-boot/jeecg-server-cloud/jeecg-demo-cloud-start
+    container_name: jeecg-demo-start
+    hostname: jeecg-boot-demo
+    restart: on-failure
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /opt/docker/demo/logs:/logs
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-gateway:
+    restart: on-failure
+    build:
+      context: ./jeecg-boot/jeecg-server-cloud/jeecg-cloud-gateway
+    ports:
+      - 9999:9999
+    depends_on:
+      - jeecg-boot-nacos
+      - jeecg-boot-system
+    container_name: jeecg-boot-gateway
+    hostname: jeecg-boot-gateway
+    volumes:
+      - /opt/docker/gateway/logs:/logs
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-dataingest:
+    depends_on:
+      - jeecg-boot-nacos
+    build:
+      context: ./jeecg-boot/jeecg-boot-module/jeecg-boot-module-dataingest
+    container_name: jeecg-dataingest-start
+    hostname: jeecg-boot-dataingest
+    restart: on-failure
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /opt/docker/debezium/data:/data
+      - /opt/docker/dataingest/logs:/logs
+    networks:
+      - jeecg-boot
+
+#  jeecg-boot-rabbitmq:
+#    image: rabbitmq:3.7.7-management
+#    ports:
+#      - 5672:5672
+#      - 15672:15672
+#    restart: always
+#    container_name: jeecg-boot-rabbitmq
+#    hostname: jeecg-boot-rabbitmq
+#    environment:
+#      RABBITMQ_DEFAULT_USER: guest
+#      RABBITMQ_DEFAULT_PASS: guest
+#  jeecg-boot-sentinel:
+#    restart: on-failure
+#    build:
+#      context: ./jeecg-visual/jeecg-cloud-sentinel
+#    ports:
+#      - 9000:9000
+#    depends_on:
+#      - jeecg-boot-nacos
+#      - jeecg-boot-demo
+#      - jeecg-boot-system
+#      - jeecg-boot-gateway
+#    container_name: jeecg-boot-sentinel
+#    hostname: jeecg-boot-sentinel
+#
+  jeecg-boot-xxljob:
+    build:
+      context: ./jeecg-boot/jeecg-server-cloud/jeecg-visual/jeecg-cloud-xxljob
+    ports:
+      - 9080:9080
+    container_name: jeecg-boot-xxljob
+    hostname: jeecg-boot-xxljob
+    depends_on:
+        - jeecg-boot-nacos
+    volumes:
+      - /opt/docker/xxljob/logs:/data/applogs
+    networks:
+        - jeecg-boot
+
+  jeecg-vue:
+    build:
+      context: ./jeecgboot-vue3
+    container_name: jeecgboot-vue3-nginx
+    image: jeecgboot-vue3
+    depends_on:
+      - jeecg-boot-system
+    networks:
+      - jeecg-boot
+    ports:
+      - 80:80
+    volumes:
+      - /opt/docker/vue3/nginx/logs:/var/log/nginx
+
+networks:
+  jeecg-boot:
+    name: jeecg_boot

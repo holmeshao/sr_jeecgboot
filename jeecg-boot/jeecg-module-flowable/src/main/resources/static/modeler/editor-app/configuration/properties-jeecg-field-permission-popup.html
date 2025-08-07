@@ -1,0 +1,281 @@
+<!--
+🎯 JeecgBoot字段权限配置弹窗模板
+在Flowable设计器中提供可视化的字段权限配置界面
+-->
+
+<div class="modal-content jeecg-field-permission-modal">
+    <!-- 模态框头部 -->
+    <div class="modal-header">
+        <h4 class="modal-title">
+            <i class="glyphicon glyphicon-lock"></i>
+            字段权限配置
+            <small>{{ selectedFormKey }}</small>
+        </h4>
+        <button type="button" class="close" ng-click="closePermissionPanel()">
+            <span>&times;</span>
+        </button>
+    </div>
+    
+    <!-- 模态框内容 -->
+    <div class="modal-body">
+        
+        <!-- 加载状态 -->
+        <div ng-if="loadingFields" class="text-center">
+            <i class="fa fa-spinner fa-spin"></i> 正在加载表单字段...
+        </div>
+        
+        <!-- 表单字段未加载 -->
+        <div ng-if="!formFieldsLoaded && !loadingFields" class="alert alert-info">
+            <i class="fa fa-info-circle"></i>
+            请等待表单字段加载完成，或检查表单Key是否正确配置。
+        </div>
+        
+        <!-- 字段权限配置主界面 -->
+        <div ng-if="formFieldsLoaded && !loadingFields">
+            
+            <!-- 操作工具栏 -->
+            <div class="permission-toolbar">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-default" ng-click="applySmartDefaults()">
+                                <i class="fa fa-magic"></i> 智能默认
+                            </button>
+                            <button type="button" class="btn btn-default" ng-click="batchSetPermission('editable')">
+                                <i class="fa fa-edit"></i> 全部可编辑
+                            </button>
+                            <button type="button" class="btn btn-default" ng-click="batchSetPermission('readonly')">
+                                <i class="fa fa-eye"></i> 全部只读
+                            </button>
+                            <button type="button" class="btn btn-default" ng-click="batchSetPermission('hidden')">
+                                <i class="fa fa-eye-slash"></i> 全部隐藏
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-right">
+                        <small class="text-muted">
+                            共 {{ formFields.length }} 个字段
+                        </small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 权限配置摘要 -->
+            <div class="permission-summary alert alert-success">
+                <strong>权限摘要：</strong> {{ getPermissionSummary() }}
+            </div>
+            
+            <!-- 字段权限配置表格 -->
+            <div class="field-permission-table">
+                <table class="table table-bordered table-hover table-condensed">
+                    <thead>
+                        <tr class="info">
+                            <th width="25%">字段名称</th>
+                            <th width="15%">字段类型</th>
+                            <th width="15%">字段分类</th>
+                            <th width="20%">权限设置</th>
+                            <th width="10%">必填</th>
+                            <th width="15%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr ng-repeat="field in formFields track by field.fieldName" 
+                            ng-class="{'warning': field.permission === 'editable', 'info': field.permission === 'readonly', 'danger': field.permission === 'hidden'}">
+                            
+                            <!-- 字段名称 -->
+                            <td>
+                                <strong>{{ field.fieldLabel || field.fieldName }}</strong>
+                                <br>
+                                <small class="text-muted">{{ field.fieldName }}</small>
+                            </td>
+                            
+                            <!-- 字段类型 -->
+                            <td>
+                                <span class="label label-default">{{ field.fieldType }}</span>
+                            </td>
+                            
+                            <!-- 字段分类 -->
+                            <td>
+                                <span class="label" ng-class="{
+                                    'label-primary': field.category === 'business',
+                                    'label-success': field.category === 'workflow', 
+                                    'label-warning': field.category === 'system',
+                                    'label-info': field.category === 'file'
+                                }">
+                                    {{ getCategoryText(field.category) }}
+                                </span>
+                            </td>
+                            
+                            <!-- 权限设置 -->
+                            <td>
+                                <select class="form-control input-sm" 
+                                        ng-model="field.permission" 
+                                        ng-change="onFieldPermissionChange(field)"
+                                        ng-disabled="field.category === 'system'">
+                                    <option value="editable">🖊️ 可编辑</option>
+                                    <option value="readonly">👁️ 只读</option>
+                                    <option value="hidden">🚫 隐藏</option>
+                                </select>
+                            </td>
+                            
+                            <!-- 必填设置 -->
+                            <td class="text-center">
+                                <input type="checkbox" 
+                                       ng-model="field.required" 
+                                       ng-change="onFieldRequiredChange(field)"
+                                       ng-disabled="field.permission === 'hidden' || field.category === 'system'">
+                            </td>
+                            
+                            <!-- 操作 -->
+                            <td class="text-center">
+                                <div class="btn-group btn-group-xs" role="group">
+                                    <button type="button" 
+                                            class="btn btn-success btn-xs" 
+                                            ng-click="field.permission='editable'; onFieldPermissionChange(field)"
+                                            ng-disabled="field.category === 'system'"
+                                            title="设为可编辑">
+                                        <i class="fa fa-edit"></i>
+                                    </button>
+                                    <button type="button" 
+                                            class="btn btn-info btn-xs" 
+                                            ng-click="field.permission='readonly'; onFieldPermissionChange(field)"
+                                            title="设为只读">
+                                        <i class="fa fa-eye"></i>
+                                    </button>
+                                    <button type="button" 
+                                            class="btn btn-danger btn-xs" 
+                                            ng-click="field.permission='hidden'; onFieldPermissionChange(field)"
+                                            ng-disabled="field.category === 'system'"
+                                            title="设为隐藏">
+                                        <i class="fa fa-eye-slash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 空状态 -->
+            <div ng-if="formFields.length === 0" class="text-center text-muted">
+                <i class="fa fa-inbox fa-3x"></i>
+                <p>未找到表单字段</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 模态框底部 -->
+    <div class="modal-footer">
+        <div class="row">
+            <div class="col-md-6 text-left">
+                <!-- 权限预览 -->
+                <div ng-if="formFieldsLoaded" class="permission-preview">
+                    <small class="text-muted">
+                        <i class="fa fa-info-circle"></i>
+                        配置完成后将自动应用到流程节点
+                    </small>
+                </div>
+            </div>
+            <div class="col-md-6 text-right">
+                <button type="button" class="btn btn-default" ng-click="closePermissionPanel()">
+                    <i class="fa fa-times"></i> 取消
+                </button>
+                <button type="button" 
+                        class="btn btn-primary" 
+                        ng-click="saveFieldPermissions()"
+                        ng-disabled="!formFieldsLoaded">
+                    <i class="fa fa-save"></i> 保存配置
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 自定义样式 -->
+<style>
+.jeecg-field-permission-modal {
+    width: 800px;
+    max-width: 90vw;
+}
+
+.permission-toolbar {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.permission-summary {
+    margin-bottom: 15px;
+    font-size: 13px;
+}
+
+.field-permission-table {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.field-permission-table table {
+    margin-bottom: 0;
+}
+
+.field-permission-table th {
+    background-color: #f5f5f5;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.field-permission-table td {
+    vertical-align: middle !important;
+}
+
+.permission-preview {
+    padding: 5px 0;
+}
+
+/* 权限状态行样式 */
+.field-permission-table tr.warning {
+    background-color: #fcf8e3 !important;
+}
+
+.field-permission-table tr.info {
+    background-color: #d9edf7 !important;
+}
+
+.field-permission-table tr.danger {
+    background-color: #f2dede !important;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .jeecg-field-permission-modal {
+        width: 95vw;
+    }
+    
+    .permission-toolbar .btn-group {
+        width: 100%;
+    }
+    
+    .permission-toolbar .btn {
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+    
+    .field-permission-table {
+        font-size: 12px;
+    }
+}
+
+/* 加载动画 */
+.fa-spin {
+    animation: fa-spin 2s infinite linear;
+}
+
+@keyframes fa-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>

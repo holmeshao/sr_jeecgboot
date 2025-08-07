@@ -1,0 +1,248 @@
+<!--
+🎯 用户任务属性面板中的字段权限配置项
+添加到Flowable设计器的用户任务属性面板中
+-->
+
+<div class="property" ng-controller="JeecgFieldPermissionCtrl">
+    
+    <!-- 字段权限配置入口 -->
+    <div class="jeecg-field-permission-property">
+        
+        <!-- 配置按钮区域 -->
+        <div class="form-group">
+            <label translate="PROPERTY.FIELDPERMISSION.TITLE">字段权限配置</label>
+            <div class="form-control-container">
+                <button type="button" 
+                        class="btn btn-primary btn-sm btn-block"
+                        ng-click="openFieldPermissionPanel()"
+                        ng-disabled="!selectedShape.properties.formkey">
+                    <i class="fa fa-lock"></i>
+                    配置字段权限
+                </button>
+                
+                <!-- 表单Key提示 -->
+                <div ng-if="!selectedShape.properties.formkey" class="help-block text-warning">
+                    <i class="fa fa-warning"></i>
+                    请先在"表单"选项卡中配置表单Key
+                </div>
+                
+                <!-- 权限摘要显示 -->
+                <div ng-if="selectedShape.properties.formkey && hasFieldPermissions()" class="field-permission-summary">
+                    <small class="text-muted">
+                        <i class="fa fa-info-circle"></i>
+                        {{ getExistingPermissionSummary() }}
+                    </small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 快速操作区域 -->
+        <div class="form-group" ng-if="selectedShape.properties.formkey">
+            <label>快速操作</label>
+            <div class="btn-group btn-group-xs btn-group-justified" role="group">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-default" ng-click="quickApplySmartDefaults()">
+                        <i class="fa fa-magic"></i> 智能默认
+                    </button>
+                </div>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-default" ng-click="quickClearPermissions()">
+                        <i class="fa fa-eraser"></i> 清除配置
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- 权限配置弹窗 -->
+    <div class="modal fade" id="fieldPermissionModal" ng-show="showPermissionPanel" style="display: block;">
+        <div class="modal-dialog modal-lg">
+            <div ng-include="'configuration/properties-jeecg-field-permission-popup.html'"></div>
+        </div>
+    </div>
+    
+    <!-- 遮罩层 -->
+    <div class="modal-backdrop fade in" ng-show="showPermissionPanel"></div>
+    
+</div>
+
+<script>
+// 🎯 扩展现有的用户任务属性控制器
+angular.module('flowableModeler').controller('JeecgFieldPermissionCtrl', ['$rootScope', '$scope', '$http', 
+function ($rootScope, $scope, $http) {
+    
+    // 检查是否已有字段权限配置
+    $scope.hasFieldPermissions = function() {
+        try {
+            var extensionElements = $scope.selectedShape.properties.extensionelements;
+            if (extensionElements && extensionElements.values) {
+                return extensionElements.values.some(function(ext) {
+                    return ext.elementType === 'jeecg:fieldPermissions';
+                });
+            }
+            return false;
+        } catch (error) {
+            return false;
+        }
+    };
+    
+    // 获取现有权限配置摘要
+    $scope.getExistingPermissionSummary = function() {
+        try {
+            var extensionElements = $scope.selectedShape.properties.extensionelements;
+            if (extensionElements && extensionElements.values) {
+                var fieldPermissions = extensionElements.values.find(function(ext) {
+                    return ext.elementType === 'jeecg:fieldPermissions';
+                });
+                
+                if (fieldPermissions) {
+                    var editableCount = 0, readonlyCount = 0, hiddenCount = 0, requiredCount = 0;
+                    
+                    try {
+                        if (fieldPermissions.editableFields) {
+                            editableCount = JSON.parse(fieldPermissions.editableFields).length;
+                        }
+                        if (fieldPermissions.readonlyFields) {
+                            readonlyCount = JSON.parse(fieldPermissions.readonlyFields).length;
+                        }
+                        if (fieldPermissions.hiddenFields) {
+                            hiddenCount = JSON.parse(fieldPermissions.hiddenFields).length;
+                        }
+                        if (fieldPermissions.requiredFields) {
+                            requiredCount = JSON.parse(fieldPermissions.requiredFields).length;
+                        }
+                    } catch (e) {
+                        return '权限配置解析错误';
+                    }
+                    
+                    return `已配置: 可编辑${editableCount} | 只读${readonlyCount} | 隐藏${hiddenCount} | 必填${requiredCount}`;
+                }
+            }
+            return '未配置权限';
+        } catch (error) {
+            return '权限配置读取错误';
+        }
+    };
+    
+    // 快速应用智能默认
+    $scope.quickApplySmartDefaults = function() {
+        if (!$scope.selectedShape.properties.formkey) {
+            alert('请先配置表单Key');
+            return;
+        }
+        
+        // 打开配置面板并应用智能默认
+        $scope.openFieldPermissionPanel();
+        // 延迟执行以确保字段已加载
+        setTimeout(function() {
+            if ($scope.formFieldsLoaded) {
+                $scope.applySmartDefaults();
+                $scope.$apply();
+            }
+        }, 1000);
+    };
+    
+    // 快速清除权限配置
+    $scope.quickClearPermissions = function() {
+        if (!confirm('确定要清除所有字段权限配置吗？')) {
+            return;
+        }
+        
+        try {
+            var extensionElements = $scope.selectedShape.properties.extensionelements;
+            if (extensionElements && extensionElements.values) {
+                extensionElements.values = extensionElements.values.filter(function(ext) {
+                    return ext.elementType !== 'jeecg:fieldPermissions';
+                });
+                
+                // 触发属性更新
+                $rootScope.$broadcast('property-value-changed', {
+                    element: $scope.selectedShape,
+                    property: 'fieldPermissions',
+                    oldValue: 'configured',
+                    newValue: null
+                });
+                
+                alert('字段权限配置已清除');
+            }
+        } catch (error) {
+            console.error('清除权限配置失败:', error);
+            alert('清除失败: ' + error.message);
+        }
+    };
+    
+}]);
+</script>
+
+<style>
+.jeecg-field-permission-property {
+    padding: 10px 0;
+}
+
+.field-permission-summary {
+    margin-top: 8px;
+    padding: 6px;
+    background-color: #f0f9ff;
+    border: 1px solid #b3e5fc;
+    border-radius: 3px;
+}
+
+.field-permission-summary .text-muted {
+    color: #607d8b !important;
+}
+
+/* 快速操作按钮样式 */
+.btn-group-justified .btn-group .btn {
+    border-radius: 0;
+}
+
+.btn-group-justified .btn-group:first-child .btn {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+.btn-group-justified .btn-group:last-child .btn {
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+/* 模态框样式调整 */
+.modal {
+    z-index: 9999;
+}
+
+.modal-backdrop {
+    z-index: 9998;
+}
+
+/* 属性面板内的按钮样式 */
+.property .btn-block {
+    margin-bottom: 8px;
+}
+
+.property .help-block {
+    margin-top: 5px;
+    margin-bottom: 0;
+    font-size: 12px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .btn-group-justified {
+        display: block;
+    }
+    
+    .btn-group-justified .btn-group {
+        display: block;
+        float: none;
+        width: 100%;
+        margin-bottom: 5px;
+    }
+    
+    .btn-group-justified .btn-group .btn {
+        width: 100%;
+        border-radius: 4px !important;
+    }
+}
+</style>

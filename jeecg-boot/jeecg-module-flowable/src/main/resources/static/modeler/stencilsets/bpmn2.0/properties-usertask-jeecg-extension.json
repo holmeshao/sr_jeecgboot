@@ -1,0 +1,41 @@
+{
+  "jeecgFieldPermissionProperty": {
+    "id": "fieldpermission",
+    "title": "字段权限",
+    "type": "complex",
+    "value": "",
+    "description": "配置表单字段的编辑权限、显示权限和必填设置",
+    "popular": true,
+    "refToView": "jeecg-field-permission",
+    "complexItems": [
+      {
+        "id": "editableFields",
+        "name": "可编辑字段",
+        "type": "string",
+        "value": "",
+        "description": "JSON数组格式的可编辑字段列表"
+      },
+      {
+        "id": "readonlyFields", 
+        "name": "只读字段",
+        "type": "string",
+        "value": "",
+        "description": "JSON数组格式的只读字段列表"
+      },
+      {
+        "id": "hiddenFields",
+        "name": "隐藏字段", 
+        "type": "string",
+        "value": "",
+        "description": "JSON数组格式的隐藏字段列表"
+      },
+      {
+        "id": "requiredFields",
+        "name": "必填字段",
+        "type": "string", 
+        "value": "",
+        "description": "JSON数组格式的必填字段列表"
+      }
+    ]
+  }
+}

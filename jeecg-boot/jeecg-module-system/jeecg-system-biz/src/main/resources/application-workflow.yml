@@ -1,0 +1,58 @@
+# ================================== 工作流配置 ==================================
+# Flowable 7.0 兼容性配置
+workflow:
+  # 是否在系统启动时自动执行批量处理
+  # true: 系统启动时自动处理所有流程定义的事件
+  # false: 需要手动调用API进行处理
+  auto-process-on-startup: true
+  
+  # 启动延迟时间（秒），避免启动时资源竞争
+  # 建议设置为 5-15 秒，确保系统完全启动后再执行处理
+  startup-delay-seconds: 10
+
+# ================================== Flowable 7.0 配置 ==================================
+flowable:
+  # 历史记录级别（建议设置为 FULL 以记录完整历史）
+  history-level: FULL
+  
+  # 数据库更新策略
+  database-schema-update: true
+  
+  # 异步执行器配置
+  async:
+    executor:
+      # 启用异步执行器
+      activate: true
+      # 核心线程数
+      core-pool-size: 2
+      # 最大线程数  
+      max-pool-size: 10
+      # 队列容量
+      queue-capacity: 100
+
+# ================================== 日志配置 ==================================
+logging:
+  level:
+    # 工作流相关日志级别
+    org.jeecg.modules.workflow: INFO
+    # Flowable引擎日志级别
+    org.flowable: WARN
+    # 只在调试时启用DEBUG级别
+    # org.flowable.engine.impl.persistence: DEBUG
+    
+  pattern:
+    # 日志格式包含工作流标识
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [WORKFLOW] %logger{50} - %msg%n"
+
+# ================================== 管理端点配置 ==================================
+management:
+  endpoints:
+    web:
+      exposure:
+        # 暴露工作流相关的管理端点
+        include: health,info,workflow
+        
+  endpoint:
+    workflow:
+      # 启用工作流管理端点
+      enabled: true

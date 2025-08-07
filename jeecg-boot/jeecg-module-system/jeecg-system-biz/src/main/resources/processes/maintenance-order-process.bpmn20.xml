@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" 
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn" 
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC" 
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema" 
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://flowable.org/maintenance">
+
+  <process id="maintenanceOrderProcess" name="维保工单流程" isExecutable="true">
+    
+    <!-- 开始事件 -->
+    <startEvent id="startEvent" name="用户提交维保申请" />
+    
+    <!-- 维修人员审核 -->
+    <userTask id="technicianReview" name="维修人员审核" flowable:assignee="${technician}">
+      <documentation>维修人员审核故障描述，提供维修方案</documentation>
+      <extensionElements>
+        <flowable:formProperty id="reviewResult" name="审核结果" type="enum" required="true">
+          <flowable:value id="APPROVED" name="通过" />
+          <flowable:value id="REJECTED" name="拒绝" />
+        </flowable:formProperty>
+        <flowable:formProperty id="solution" name="维修方案" type="string" />
+        <flowable:formProperty id="estimatedCost" name="预估费用" type="long" />
+        <flowable:formProperty id="estimatedHours" name="预估工时" type="long" />
+        <flowable:formProperty id="rejectionReason" name="拒绝原因" type="string" />
+      </extensionElements>
+    </userTask>
+    
+    <!-- 审核结果网关 -->
+    <exclusiveGateway id="reviewGateway" name="审核结果判断" />
+    
+    <!-- 质保期检查 -->
+    <serviceTask id="warrantyCheck" name="质保期检查" flowable:class="org.jeecg.modules.maintenance.workflow.WarrantyCheckDelegate">
+      <documentation>系统自动检查是否在质保期内</documentation>
+    </serviceTask>
+    
+    <!-- 质保期判断网关 -->
+    <exclusiveGateway id="warrantyGateway" name="质保期判断" />
+    
+    <!-- 审批流程（质保期外） -->
+    <userTask id="managerApproval" name="项目经理审批" flowable:assignee="${projectManager}">
+      <documentation>项目经理审批质保期外的维修申请</documentation>
+      <extensionElements>
+        <flowable:formProperty id="approvalResult" name="审批结果" type="enum" required="true">
+          <flowable:value id="APPROVED" name="通过" />
+          <flowable:value id="REJECTED" name="拒绝" />
+        </flowable:formProperty>
+        <flowable:formProperty id="approvalOpinion" name="审批意见" type="string" />
+      </extensionElements>
+    </userTask>
+    
+    <userTask id="leaderApproval" name="领导审批" flowable:assignee="${leader}">
+      <documentation>领导审批高额维修费用</documentation>
+      <extensionElements>
+        <flowable:formProperty id="approvalResult" name="审批结果" type="enum" required="true">
+          <flowable:value id="APPROVED" name="通过" />
+          <flowable:value id="REJECTED" name="拒绝" />
+        </flowable:formProperty>
+        <flowable:formProperty id="approvalOpinion" name="审批意见" type="string" />
+      </extensionElements>
+    </userTask>
+    
+    <!-- 审批结果网关 -->
+    <exclusiveGateway id="approvalGateway" name="审批结果判断" />
+    
+    <!-- 派单给劳务班组 -->
+    <userTask id="assignToLaborTeam" name="派单给劳务班组" flowable:assignee="${technician}">
+      <documentation>维修人员将工单派给合适的劳务班组</documentation>
+      <extensionElements>
+        <flowable:formProperty id="laborTeamId" name="劳务班组" type="string" required="true" />
+        <flowable:formProperty id="workInstructions" name="工作指导" type="string" />
+        <flowable:formProperty id="safetyRequirements" name="安全要求" type="string" />
+      </extensionElements>
+    </userTask>
+    
+    <!-- 劳务执行维修 -->
+    <userTask id="laborExecution" name="劳务执行维修" flowable:assignee="${laborTeamLeader}">
+      <documentation>劳务班组执行具体的维修工作</documentation>
+      <extensionElements>
+        <flowable:formProperty id="workContent" name="工作内容" type="string" />
+        <flowable:formProperty id="materialsUsed" name="使用材料" type="string" />
+        <flowable:formProperty id="actualHours" name="实际工时" type="long" />
+        <flowable:formProperty id="actualCost" name="实际费用" type="long" />
+        <flowable:formProperty id="workQuality" name="工作质量" type="enum">
+          <flowable:value id="EXCELLENT" name="优秀" />
+          <flowable:value id="GOOD" name="良好" />
+          <flowable:value id="AVERAGE" name="一般" />
+        </flowable:formProperty>
+        <flowable:formProperty id="completionStatus" name="完成状态" type="enum" required="true">
+          <flowable:value id="COMPLETED" name="已完成" />
+          <flowable:value id="NEED_ADDITIONAL_WORK" name="需要额外工作" />
+        </flowable:formProperty>
+      </extensionElements>
+    </userTask>
+    
+    <!-- 完成状态网关 -->
+    <exclusiveGateway id="completionGateway" name="完成状态判断" />
+    
+    <!-- 质量验收 -->
+    <userTask id="qualityInspection" name="质量验收" flowable:assignee="${inspector}">
+      <documentation>质量验收人员检查维修质量</documentation>
+      <extensionElements>
+        <flowable:formProperty id="inspectionResult" name="验收结果" type="enum" required="true">
+          <flowable:value id="PASSED" name="验收通过" />
+          <flowable:value id="FAILED" name="验收不通过" />
+        </flowable:formProperty>
+        <flowable:formProperty id="inspectionOpinion" name="验收意见" type="string" />
+        <flowable:formProperty id="qualityScore" name="质量评分" type="long" />
+      </extensionElements>
+    </userTask>
+    
+    <!-- 验收结果网关 -->
+    <exclusiveGateway id="inspectionGateway" name="验收结果判断" />
+    
+    <!-- 客户满意度评价 -->
+    <userTask id="customerEvaluation" name="客户满意度评价" flowable:assignee="${customer}">
+      <documentation>客户对维修服务进行满意度评价</documentation>
+      <extensionElements>
+        <flowable:formProperty id="serviceScore" name="服务评分" type="long" />
+        <flowable:formProperty id="qualityScore" name="质量评分" type="long" />
+        <flowable:formProperty id="timelinessScore" name="及时性评分" type="long" />
+        <flowable:formProperty id="feedback" name="意见反馈" type="string" />
+      </extensionElements>
+    </userTask>
+    
+    <!-- 结束事件 -->
+    <endEvent id="endEvent" name="工单完成" />
+    
+    <!-- 拒绝结束 -->
+    <endEvent id="rejectedEndEvent" name="工单被拒绝" />
+    
+    <!-- 序列流定义 -->
+    <sequenceFlow id="flow1" sourceRef="startEvent" targetRef="technicianReview" />
+    
+    <sequenceFlow id="flow2" sourceRef="technicianReview" targetRef="reviewGateway" />
+    
+    <sequenceFlow id="flow3" sourceRef="reviewGateway" targetRef="warrantyCheck" name="审核通过">
+      <conditionExpression xsi:type="tFormalExpression">${reviewResult == 'APPROVED'}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow4" sourceRef="reviewGateway" targetRef="rejectedEndEvent" name="审核拒绝">
+      <conditionExpression xsi:type="tFormalExpression">${reviewResult == 'REJECTED'}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow5" sourceRef="warrantyCheck" targetRef="warrantyGateway" />
+    
+    <sequenceFlow id="flow6" sourceRef="warrantyGateway" targetRef="assignToLaborTeam" name="质保期内">
+      <conditionExpression xsi:type="tFormalExpression">${underWarranty == true}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow7" sourceRef="warrantyGateway" targetRef="managerApproval" name="质保期外">
+      <conditionExpression xsi:type="tFormalExpression">${underWarranty == false}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow8" sourceRef="managerApproval" targetRef="approvalGateway" />
+    
+    <sequenceFlow id="flow9" sourceRef="approvalGateway" targetRef="leaderApproval" name="金额较大">
+      <conditionExpression xsi:type="tFormalExpression">${estimatedCost > 5000}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow10" sourceRef="approvalGateway" targetRef="assignToLaborTeam" name="金额较小">
+      <conditionExpression xsi:type="tFormalExpression">${estimatedCost <= 5000}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow11" sourceRef="leaderApproval" targetRef="assignToLaborTeam" />
+    
+    <sequenceFlow id="flow12" sourceRef="assignToLaborTeam" targetRef="laborExecution" />
+    
+    <sequenceFlow id="flow13" sourceRef="laborExecution" targetRef="completionGateway" />
+    
+    <sequenceFlow id="flow14" sourceRef="completionGateway" targetRef="qualityInspection" name="维修完成">
+      <conditionExpression xsi:type="tFormalExpression">${completionStatus == 'COMPLETED'}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow15" sourceRef="completionGateway" targetRef="laborExecution" name="需要额外工作">
+      <conditionExpression xsi:type="tFormalExpression">${completionStatus == 'NEED_ADDITIONAL_WORK'}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow16" sourceRef="qualityInspection" targetRef="inspectionGateway" />
+    
+    <sequenceFlow id="flow17" sourceRef="inspectionGateway" targetRef="customerEvaluation" name="验收通过">
+      <conditionExpression xsi:type="tFormalExpression">${inspectionResult == 'PASSED'}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow18" sourceRef="inspectionGateway" targetRef="laborExecution" name="验收不通过">
+      <conditionExpression xsi:type="tFormalExpression">${inspectionResult == 'FAILED'}</conditionExpression>
+    </sequenceFlow>
+    
+    <sequenceFlow id="flow19" sourceRef="customerEvaluation" targetRef="endEvent" />
+    
+  </process>
+  
+  <!-- 流程图布局信息 -->
+  <bpmndi:BPMNDiagram id="BPMNDiagram_maintenanceOrderProcess">
+    <bpmndi:BPMNPlane bpmnElement="maintenanceOrderProcess" id="BPMNPlane_maintenanceOrderProcess">
+      
+      <!-- 开始事件 -->
+      <bpmndi:BPMNShape bpmnElement="startEvent" id="BPMNShape_startEvent">
+        <omgdc:Bounds height="35.0" width="35.0" x="50.0" y="100.0" />
+      </bpmndi:BPMNShape>
+      
+      <!-- 维修人员审核 -->
+      <bpmndi:BPMNShape bpmnElement="technicianReview" id="BPMNShape_technicianReview">
+        <omgdc:Bounds height="80.0" width="100.0" x="150.0" y="78.0" />
+      </bpmndi:BPMNShape>
+      
+      <!-- 审核结果网关 -->
+      <bpmndi:BPMNShape bpmnElement="reviewGateway" id="BPMNShape_reviewGateway">
+        <omgdc:Bounds height="40.0" width="40.0" x="300.0" y="98.0" />
+      </bpmndi:BPMNShape>
+      
+      <!-- 其他形状元素... -->
+      
+      <!-- 序列流 -->
+      <bpmndi:BPMNEdge bpmnElement="flow1" id="BPMNEdge_flow1">
+        <omgdi:waypoint x="85.0" y="117.5" />
+        <omgdi:waypoint x="150.0" y="118.0" />
+      </bpmndi:BPMNEdge>
+      
+      <!-- 其他边线元素... -->
+      
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  
+</definitions>

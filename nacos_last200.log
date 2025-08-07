@@ -1,0 +1,34 @@
+
+         ,--.
+       ,--.'|
+   ,--,:  : |                                           Nacos 3.8.0
+,`--.'`|  ' :                       ,---.               Running in stand alone mode, All function modules
+|   :  :  | |                      '   ,'\   .--.--.    Port: 8848
+:   |   \ | :  ,--.--.     ,---.  /   /   | /  /    '   Pid: 1
+|   : '  '; | /       \   /     \.   ; ,. :|  :  /`./   Console: http://172.18.0.3:8848${server.servlet.contextPath}/index.html
+'   ' ;.    ;.--.  .-. | /    / ''   | |: :|  :  ;_
+|   | | \   | \__\/: . ..    ' / '   | .; : \  \    `.      https://nacos.io
+'   : |  ; .' ," .--.; |'   ; :__|   :    |  `----.   \
+|   | '`--'  /  /  ,.  |'   | '.'|\   \  /  /  /`--'  /
+'   : |     ;  :   .'   \   :    : `----'  '--'.     /
+;   |.'     |  ,     .-./\   \  /            `--'---'
+'---'        `--`---'     `----'
+
+2025-07-17 17:39:36.754  INFO 1 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8848 (http)
+2025-07-17 17:39:37.012  INFO 1 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 2432 ms
+2025-07-17 17:39:39.924  INFO 1 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@6f1b8544, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@51dae791, org.springframework.security.web.context.SecurityContextPersistenceFilter@5b5a4aed, org.springframework.security.web.header.HeaderWriterFilter@77dba4cd, org.springframework.web.filter.CorsFilter@1b005a0b, org.springframework.security.web.authentication.logout.LogoutFilter@205df5dc, com.alibaba.nacos.plugin.auth.impl.filter.JwtAuthenticationTokenFilter@688a2c09, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@5fef2aac, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@7f973a14, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@5de5e95, org.springframework.security.web.session.SessionManagementFilter@34b87182, org.springframework.security.web.access.ExceptionTranslationFilter@49cb1baf, org.springframework.security.web.access.intercept.FilterSecurityInterceptor@76e9f00b]
+2025-07-17 17:39:40.067  INFO 1 --- [           main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2025-07-17 17:39:40.321  INFO 1 --- [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint(s) beneath base path '/actuator'
+2025-07-17 17:39:40.331  WARN 1 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Ant [pattern='/**']. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2025-07-17 17:39:40.331  INFO 1 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will not secure Ant [pattern='/**']
+2025-07-17 17:39:40.331  WARN 1 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Mvc [pattern='/prometheus']. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2025-07-17 17:39:40.331  INFO 1 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will not secure Mvc [pattern='/prometheus']
+2025-07-17 17:39:40.331  WARN 1 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Mvc [pattern='/prometheus/namespaceId/{namespaceId}']. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2025-07-17 17:39:40.332  INFO 1 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will not secure Mvc [pattern='/prometheus/namespaceId/{namespaceId}']
+2025-07-17 17:39:40.332  WARN 1 --- [           main] o.s.s.c.a.web.builders.WebSecurity       : You are asking Spring Security to ignore Mvc [pattern='/prometheus/namespaceId/{namespaceId}/service/{service}']. This is not recommended -- please use permitAll via HttpSecurity#authorizeHttpRequests instead.
+2025-07-17 17:39:40.332  INFO 1 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will not secure Mvc [pattern='/prometheus/namespaceId/{namespaceId}/service/{service}']
+2025-07-17 17:39:40.372  INFO 1 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8848 (http) with context path '/nacos'
+2025-07-17 17:39:40.382  INFO 1 --- [           main] s.a.ScheduledAnnotationBeanPostProcessor : No TaskScheduler/ScheduledExecutorService bean found for scheduled processing
+2025-07-17 17:39:40.393  INFO 1 --- [           main] c.a.n.c.l.StartingApplicationListener    : Nacos started successfully in stand alone mode. use embedded storage
+2025-07-17 17:40:09.560  INFO 1 --- [nio-8848-exec-2] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2025-07-17 17:40:09.561  INFO 1 --- [nio-8848-exec-2] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms

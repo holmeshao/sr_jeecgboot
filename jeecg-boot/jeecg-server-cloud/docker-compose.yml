@@ -1,0 +1,211 @@
+version: '2'
+services:
+  # jeecg-boot-mysql:
+  #   build:
+  #     context: ../db
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: root
+  #     MYSQL_ROOT_HOST: '%'
+  #     TZ: Asia/Shanghai
+  #   restart: always
+  #   container_name: jeecg-boot-mysql
+  #   command:
+  #     --character-set-server=utf8mb4
+  #     --collation-server=utf8mb4_general_ci
+  #     --explicit_defaults_for_timestamp=true
+  #     --lower_case_table_names=1
+  #     --max_allowed_packet=128M
+  #     --default-authentication-plugin=caching_sha2_password
+  #   ports:
+  #     - 3306:3306
+  #   networks:
+  #     - jeecg-boot
+
+  jeecg-boot-pgsql:
+    build:
+      context: ../db_pgsql
+    environment:
+      POSTGRES_DB: jeecg-boot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Shanghai
+      PGDATA: /var/lib/postgresql/data/pgdata
+    restart: always
+    container_name: jeecg-boot-pgsql
+    image: jeecg-boot-pgsql
+    ports:
+      - 5432:5432
+    volumes:
+      - /opt/database/pgsql/data:/var/lib/postgresql/data
+      - /opt/database/pgsql/logs:/var/log/postgresql
+      - /opt/database/pgsql/backup:/opt/backup
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_wal_senders=0"
+      - "-c"
+      - "logging_collector=on"
+      - "-c"
+      - "log_destination=stderr"
+      - "-c"
+      - "log_directory=/var/log/postgresql"
+      - "-c"
+      - "log_filename=postgresql-%Y-%m-%d_%H%M%S.log"
+      - "-c"
+      - "log_rotation_age=1d"
+      - "-c"
+      - "log_rotation_size=100MB"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_checkpoints=on"
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_disconnections=on"
+      - "-c"
+      - "log_lock_waits=on"
+      - "-c"
+      - "log_temp_files=0"
+      - "-c"
+      - "log_autovacuum_min_duration=0"
+      - "-c"
+      - "log_error_verbosity=verbose"
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-redis:
+    image: registry.cn-hangzhou.aliyuncs.com/jeecgdocker/redis:5.0
+    ports:
+      - 6379:6379
+    restart: always
+    container_name: jeecg-boot-redis
+    hostname: jeecg-boot-redis
+    networks:
+      - jeecg-boot
+
+#  jeecg-boot-rabbitmq:
+#    image: rabbitmq:3.7.7-management
+#    ports:
+#      - 5672:5672
+#      - 15672:15672
+#    restart: always
+#    container_name: jeecg-boot-rabbitmq
+#    hostname: jeecg-boot-rabbitmq
+#    environment:
+#      RABBITMQ_DEFAULT_USER: guest
+#      RABBITMQ_DEFAULT_PASS: guest
+
+
+  jeecg-boot-nacos:
+    image: nacos/nacos-server:v2.5.1
+    container_name: jeecg-boot-nacos
+    hostname: jeecg-boot-nacos
+    restart: always
+    environment:
+      - MODE=standalone
+      - NACOS_AUTH_ENABLE=false
+      - SPRING_DATASOURCE_PLATFORM=postgresql
+      - DB_NUM=1
+      - DB_URL_0=jdbc:postgresql://jeecg-boot-pgsql:5432/nacos?stringtype=unspecified
+      - DB_USER_0=postgres
+      - DB_PASSWORD_0=postgres
+      - DB_POOL_CONFIG_DRIVERCLASSNAME=org.postgresql.Driver
+    ports:
+      - 8848:8848
+      - 9848:9848
+      - 9849:9849
+    volumes:
+      - ./jeecg-cloud-nacos/nacos-plugins:/home/nacos/plugins
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-system:
+    depends_on:
+      - jeecg-boot-nacos
+    build:
+      context: ./jeecg-system-cloud-start
+    container_name: jeecg-system-start
+    hostname: jeecg-boot-system
+    restart: on-failure
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-demo:
+    depends_on:
+      - jeecg-boot-nacos
+    build:
+      context: ./jeecg-demo-cloud-start
+    container_name: jeecg-demo-start
+    hostname: jeecg-boot-demo
+    restart: on-failure
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - jeecg-boot
+
+  jeecg-boot-gateway:
+    restart: on-failure
+    build:
+      context: ./jeecg-cloud-gateway
+    ports:
+      - 9999:9999
+    depends_on:
+      - jeecg-boot-nacos
+      - jeecg-boot-system
+    container_name: jeecg-boot-gateway
+    hostname: jeecg-boot-gateway
+    networks:
+      - jeecg-boot
+
+networks:
+  jeecg-boot:
+    name: jeecg_boot
+
+#  jeecg-boot-sentinel:
+#    restart: on-failure
+#    build:
+#      context: ./jeecg-visual/jeecg-cloud-sentinel
+#    ports:
+#      - 9000:9000
+#    depends_on:
+#      - jeecg-boot-nacos
+#      - jeecg-boot-demo
+#      - jeecg-boot-system
+#      - jeecg-boot-gateway
+#    container_name: jeecg-boot-sentinel
+#    hostname: jeecg-boot-sentinel
+#
+#  jeecg-boot-xxljob:
+#    build:
+#      context: ./jeecg-visual/jeecg-cloud-xxljob
+#    ports:
+#      - 9080:9080
+#    container_name: jeecg-boot-xxljob
+#    hostname: jeecg-boot-xxljob
