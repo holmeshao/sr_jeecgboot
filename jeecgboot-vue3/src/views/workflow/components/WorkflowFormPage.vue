@@ -195,8 +195,8 @@ import {
   ClockCircleOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons-vue';
-import WorkflowHistory from './WorkflowHistory.vue';
-import FormVersionHistory from './FormVersionHistory.vue';
+import WorkflowHistory from './ProcessTimeline.vue';
+import FormVersionHistory from './VersionTimeline.vue';
 import { getDisplayMode, getNodePermission, submitForm, saveDraft } from '@/api/workflow';
 
 // Props

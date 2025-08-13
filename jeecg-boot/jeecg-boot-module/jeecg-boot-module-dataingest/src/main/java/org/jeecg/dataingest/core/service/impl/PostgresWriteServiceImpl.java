@@ -244,11 +244,35 @@ public class PostgresWriteServiceImpl implements IPostgresWriteService {
     @Override
     public boolean notifyNiFi(String tableName, String operation, String taskId) {
         try {
-            // 调用NiFi通知服务
-            return niFiNotificationService.notifyDataReady(tableName, operation, taskId);
+            // 构造通知数据
+            com.alibaba.fastjson2.JSONObject notificationData = new com.alibaba.fastjson2.JSONObject();
+            notificationData.put("tableName", tableName);
+            notificationData.put("operation", operation);
+            notificationData.put("taskId", taskId);
+            notificationData.put("timestamp", System.currentTimeMillis());
+            
+            // 调用NiFi通知服务，使用业务域触发
+            String businessDomain = extractBusinessDomain(tableName);
+            return niFiNotificationService.triggerByBusinessDomain(businessDomain, notificationData);
         } catch (Exception e) {
             log.error("通知NiFi失败: " + tableName, e);
             return false;
+        }
+    }
+    
+    /**
+     * 从表名提取业务域
+     */
+    private String extractBusinessDomain(String tableName) {
+        // 简单的业务域提取逻辑，可以根据实际需要调整
+        if (tableName.contains("user")) {
+            return "user_management";
+        } else if (tableName.contains("order")) {
+            return "order_management";
+        } else if (tableName.contains("product")) {
+            return "product_management";
+        } else {
+            return "default";
         }
     }
     

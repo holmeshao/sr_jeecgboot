@@ -112,11 +112,7 @@ export const saveNodePermission = (params: {
 /**
  * 🎯 批量保存节点权限配置
  */
-export const batchSaveNodePermissions = (params: {
-  formId: string;
-  processKey: string;
-  nodePermissions: Record<string, any>;
-}) => {
+export const batchSaveNodePermissions = (params: { formId: string; processKey: string; nodePermissions: Record<string, any> }) => {
   return defHttp.post({ url: Api.batchSaveNodePermissions, params });
 };
 
@@ -144,17 +140,13 @@ export const generateDefaultPermission = (formId: string, nodeId: string) => {
  * 🎯 权限配置相关的业务API
  */
 export class PermissionConfigApi {
-  
   /**
    * 获取表单的完整权限配置
    */
   static async getFormPermissionConfig(formId: string) {
     try {
-      const [nodePermissions, formFields] = await Promise.all([
-        getByFormId(formId),
-        getFormFields(formId)
-      ]);
-      
+      const [nodePermissions, formFields] = await Promise.all([getByFormId(formId), getFormFields(formId)]);
+
       return {
         nodePermissions: nodePermissions.result || [],
         formFields: formFields.result || [],
@@ -181,18 +173,14 @@ export class PermissionConfigApi {
   /**
    * 保存完整的表单权限配置
    */
-  static async saveFormPermissionConfig(
-    formId: string,
-    processKey: string,
-    nodePermissions: Record<string, any>
-  ) {
+  static async saveFormPermissionConfig(formId: string, processKey: string, nodePermissions: Record<string, any>) {
     try {
       const response = await batchSaveNodePermissions({
         formId,
         processKey,
         nodePermissions,
       });
-      
+
       if (response.success) {
         return response.result;
       } else {
@@ -218,7 +206,7 @@ export class PermissionConfigApi {
   static async exportPermissionTemplate(formId: string) {
     try {
       const config = await this.getFormPermissionConfig(formId);
-      
+
       // 构建导出数据
       const exportData = {
         formId,
@@ -231,7 +219,7 @@ export class PermissionConfigApi {
       const blob = new Blob([JSON.stringify(exportData, null, 2)], {
         type: 'application/json',
       });
-      
+
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

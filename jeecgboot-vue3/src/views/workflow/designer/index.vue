@@ -223,45 +223,55 @@ const defaultBpmnXml = `<?xml version="1.0" encoding="UTF-8"?>
 // 初始化设计器
 async function initBpmnModeler() {
   try {
-    // 动态导入模块
-    const bpmnModelerModule = await import('bpmn-js/lib/Modeler');
-    const propertiesPanelModule = await import('bpmn-js-properties-panel');
-    const flowableDescriptor = await import('bpmn-js-properties-panel/lib/provider/flowable/FlowableDescriptor');
+    // 检查BPMN依赖是否可用
+    try {
+      // 动态导入模块
+      const bpmnModelerModule = await import('bpmn-js/lib/Modeler');
+      const propertiesPanelModule = await import('bpmn-js-properties-panel');
+      // 注意: 新版本的bpmn-js-properties-panel可能不包含flowable相关功能
+      // const flowableDescriptor = await import('bpmn-js-properties-panel/lib/provider/flowable/FlowableDescriptor');
 
-    BpmnModeler = bpmnModelerModule.default;
-    BpmnPropertiesPanel = propertiesPanelModule.BpmnPropertiesPanel;
-    flowableModdleDescriptor = flowableDescriptor.default;
+      BpmnModeler = bpmnModelerModule.default;
+      BpmnPropertiesPanel = propertiesPanelModule.BpmnPropertiesPanel;
+      // flowableModdleDescriptor = flowableDescriptor.default; // 暂时注释掉
 
-    // 创建BPMN建模器
-    modeler = new BpmnModeler({
-      container: bpmnContainer.value,
-      keyboard: {
-        bindTo: window
-      },
-      propertiesPanel: {
-        parent: propertiesContainer.value
-      },
-      additionalModules: [
-        BpmnPropertiesPanel,
-        // 可以添加更多插件
-      ],
-      moddleExtensions: {
-        flowable: flowableModdleDescriptor
-      }
-    });
+      // 创建BPMN建模器
+      modeler = new BpmnModeler({
+        container: bpmnContainer.value,
+        keyboard: {
+          bindTo: window
+        },
+        propertiesPanel: {
+          parent: propertiesContainer.value
+        },
+        additionalModules: [
+          BpmnPropertiesPanel,
+          // 可以添加更多插件
+        ],
+        // moddleExtensions: {
+        //   flowable: flowableModdleDescriptor // 暂时注释掉Flowable扩展
+        // }
+      });
 
-    // 监听事件
-    modeler.on('import.done', () => {
-      hasProcess.value = true;
-      zoomReset();
-    });
+      // 监听事件
+      modeler.on('import.done', () => {
+        hasProcess.value = true;
+        zoomReset();
+      });
 
-    modeler.on('commandStack.changed', () => {
-      hasProcess.value = true;
-    });
+      modeler.on('commandStack.changed', () => {
+        hasProcess.value = true;
+      });
 
-    // 创建新流程
-    await createNew();
+      // 创建新流程
+      await createNew();
+      
+    } catch (depError) {
+      // BPMN依赖不存在时的处理
+      console.warn('BPMN依赖未安装，流程设计器功能将不可用:', depError);
+      createMessage.warning('流程设计器依赖未安装，请联系管理员或安装 bpmn-js 相关依赖');
+      return; // 早期返回，避免继续执行
+    }
 
   } catch (error) {
     console.error('初始化BPMN设计器失败:', error);

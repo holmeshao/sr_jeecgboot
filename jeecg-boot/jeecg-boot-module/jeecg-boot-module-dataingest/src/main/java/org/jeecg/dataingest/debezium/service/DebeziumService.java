@@ -314,26 +314,26 @@ public class DebeziumService {
      * 创建日志记录
      */
     private DataIngestMoudleIngestLog createIngestLog(String taskId, String taskName) {
-        DataIngestMoudleIngestLog log = new DataIngestMoudleIngestLog();
-        log.setId(UUID.randomUUID().toString().replace("-", ""));
-        log.setTaskId(taskId);
-        log.setBatchId(UUID.randomUUID().toString().replace("-", ""));
-        log.setStatus(0); // 0-开始执行
-        log.setStartTime(new Date());
-        log.setRecordCount(0);
-        log.setSuccessCount(0);
-        log.setFailCount(0);
-        log.setExecuteLog("开始执行CDC任务: " + taskName);
-        log.setCreateTime(new Date());
+        DataIngestMoudleIngestLog ingestLog = new DataIngestMoudleIngestLog();
+        ingestLog.setId(UUID.randomUUID().toString().replace("-", ""));
+        ingestLog.setTaskId(taskId);
+        ingestLog.setBatchId(UUID.randomUUID().toString().replace("-", ""));
+        ingestLog.setStatus(0); // 0-开始执行
+        ingestLog.setStartTime(new Date());
+        ingestLog.setRecordCount(0);
+        ingestLog.setSuccessCount(0);
+        ingestLog.setFailCount(0);
+        ingestLog.setExecuteLog("开始执行CDC任务: " + taskName);
+        ingestLog.setCreateTime(new Date());
         
         try {
-            ingestLogService.save(log);
-            log.info("创建日志记录成功，ID: {}", log.getId());
+            ingestLogService.save(ingestLog);
+            log.info("创建日志记录成功，ID: {}", ingestLog.getId());
         } catch (Exception e) {
             log.error("创建日志记录失败", e);
         }
         
-        return log;
+        return ingestLog;
     }
     
     /**

@@ -58,4 +58,12 @@ public interface INiFiNotificationService {
      * @return 是否成功
      */
     boolean triggerByBusinessDomain(String businessDomain, JSONObject changeData);
+    
+    /**
+     * 根据通知模式触发处理器
+     * @param cdcConfig CDC表配置
+     * @param changeData 变更数据
+     * @return 是否成功
+     */
+    boolean triggerByNotifyMode(DataIngestMoudleDataCdcTable cdcConfig, JSONObject changeData);
 } 

@@ -383,7 +383,7 @@ function togglePreview(snapshot: any) {
 /**
  * 导出快照
  */
-function exportSnapshot(snapshot: any) {
+async function exportSnapshot(snapshot: any) {
   // TODO: 实现导出功能
   try {
     // 导出版本对比结果

@@ -82,7 +82,9 @@
     "vxe-table-plugin-antd": "4.0.8",
     "vxe-pc-ui": "4.6.12",
     "xe-utils": "3.5.26",
-    "xss": "^1.0.15"
+    "xss": "^1.0.15",
+    "bpmn-js": "^17.11.1",
+    "bpmn-js-properties-panel": "^5.24.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^18.6.1",

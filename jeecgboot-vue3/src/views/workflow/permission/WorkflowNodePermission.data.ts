@@ -307,7 +307,7 @@ function getFormModeLabel(mode: string): string {
  */
 function renderPermissionSummary(record: any) {
   const summary = [];
-  
+
   // 可编辑字段
   const editableCount = getFieldCount(record.editableFields);
   if (editableCount > 0) {

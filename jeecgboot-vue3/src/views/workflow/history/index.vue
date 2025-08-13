@@ -280,17 +280,19 @@ function handleRefresh() {
 }
 
 // 导出
-function handleExport() {
+async function handleExport() {
   try {
     // 基于JeecgBoot导出机制实现流程历史导出
     const { handleExportXls } = useMethods();
     
     const exportParams = {
-      processInstanceId: record.processInstanceId,
-      includeDetails: true
+      includeDetails: true,
+      // 导出当前页面的所有流程历史
+      pageSize: 1000, // 导出更多数据
+      current: 1
     };
 
-    const fileName = `流程历史_${record.processDefinitionName}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
+    const fileName = `流程历史_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
     await handleExportXls(fileName, '/workflow/history/export', exportParams);
     
     createMessage.success('导出成功');

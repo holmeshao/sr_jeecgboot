@@ -94,6 +94,4 @@ const workflow: AppRouteModule = {
   ],
 };
 
-export default workflow;
-
 export default workflow; 

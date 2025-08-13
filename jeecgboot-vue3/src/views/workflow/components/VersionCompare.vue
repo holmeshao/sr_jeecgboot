@@ -143,7 +143,7 @@
     <!-- 变更统计 -->
     <div class="change-summary">
       <a-card title="变更摘要" size="small">
-        <a-row :gutter="16}>
+        <a-row :gutter="16">
           <a-col :span="6">
             <a-statistic title="总字段数" :value="allFields.length" />
           </a-col>
@@ -396,7 +396,7 @@ function switchVersions() {
 /**
  * 导出对比结果
  */
-function exportComparison() {
+async function exportComparison() {
   // TODO: 实现导出功能
   try {
     // 导出版本对比详情
