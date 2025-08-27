@@ -15,17 +15,17 @@ enum Api {
   SAVE_DRAFT = '/workflow/form/save-draft',
   GET_VERSION_HISTORY = '/workflow/form/version-history',
   
-  // 工作流配置API
-  WORKFLOW_CONFIG_LIST = '/workflow/onlCgformWorkflowConfig/list',
-  WORKFLOW_CONFIG_ADD = '/workflow/onlCgformWorkflowConfig/add',
-  WORKFLOW_CONFIG_EDIT = '/workflow/onlCgformWorkflowConfig/edit',
-  WORKFLOW_CONFIG_DELETE = '/workflow/onlCgformWorkflowConfig/delete',
+  // 工作流配置API (修正路径 - 后端在jeecg-system中)
+  WORKFLOW_CONFIG_LIST = '/workflow/onlineForm/config/list',
+  WORKFLOW_CONFIG_ADD = '/workflow/onlineForm/config/add',
+  WORKFLOW_CONFIG_EDIT = '/workflow/onlineForm/config/edit',
+  WORKFLOW_CONFIG_DELETE = '/workflow/onlineForm/config/delete',
   
-  // 节点权限配置API
-  NODE_CONFIG_LIST = '/workflow/onlCgformWorkflowNode/list',
-  NODE_CONFIG_ADD = '/workflow/onlCgformWorkflowNode/add',
-  NODE_CONFIG_EDIT = '/workflow/onlCgformWorkflowNode/edit',
-  NODE_CONFIG_DELETE = '/workflow/onlCgformWorkflowNode/delete',
+  // 节点权限配置API (修正路径)
+  NODE_CONFIG_LIST = '/workflow/onlineForm/node/list',
+  NODE_CONFIG_ADD = '/workflow/onlineForm/node/add',
+  NODE_CONFIG_EDIT = '/workflow/onlineForm/node/edit',
+  NODE_CONFIG_DELETE = '/workflow/onlineForm/node/delete',
   
   // Flowable 7.0兼容性API
   TRIGGER_DEPLOYMENT_EVENT = '/workflow/triggerDeploymentEvent',
@@ -427,4 +427,301 @@ export const executeStartupProcess = () => {
   return defHttp.post<string>({
     url: '/workflow/executeStartupProcess'
   });
+};
+
+// ============ 工作流定义管理 API ============
+
+/**
+ * 工作流定义管理API
+ */
+export const workflowDefinitionApi = {
+  /**
+   * 获取流程定义列表
+   */
+  getList: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/definition/list',
+      params,
+    });
+  },
+
+  /**
+   * 部署流程定义
+   */
+  deploy: (data: any) => {
+    return defHttp.post<any>({
+      url: '/workflow/definition/deploy',
+      data,
+    });
+  },
+
+  /**
+   * 获取流程定义XML
+   */
+  getXml: (id: string) => {
+    return defHttp.get<any>({
+      url: `/workflow/definition/${id}/xml`,
+    });
+  },
+
+  /**
+   * 切换流程定义状态（激活/挂起）
+   */
+  toggleState: (id: string, action: string) => {
+    return defHttp.put<any>({
+      url: `/workflow/definition/${id}/${action}`,
+    });
+  },
+
+  /**
+   * 删除流程定义
+   */
+  delete: (id: string) => {
+    return defHttp.delete<any>({
+      url: `/workflow/definition/${id}`,
+    });
+  },
+};
+
+// ============ 模型仓库 API ============
+
+export const workflowModelApi = {
+  /** 保存或更新模型基本信息 */
+  saveModel: (data: any) => {
+    return defHttp.post<any>({
+      url: '/workflow/model',
+      data,
+    });
+  },
+
+  /** 新增模型版本（保存草稿XML） */
+  createVersion: (modelId: string, data: { xml: string; comment?: string }) => {
+    return defHttp.post<any>({
+      url: `/workflow/model/${modelId}/versions`,
+      data,
+    });
+  },
+
+  /** 获取模型最新XML */
+  getLatestXml: (modelId: string) => {
+    return defHttp.get<any>({
+      url: `/workflow/model/${modelId}/xml`,
+    });
+  },
+
+  /** 获取模型版本列表 */
+  listVersions: (modelId: string) => {
+    return defHttp.get<any>({
+      url: `/workflow/model/${modelId}/versions`,
+    });
+  },
+
+  /** 按Key查询模型 */
+  getByKey: (modelKey: string) => {
+    return defHttp.get<any>({
+      url: `/workflow/model/byKey`,
+      params: { modelKey },
+    });
+  },
+
+  /** 模型列表 */
+  list: (keyword?: string) => {
+    return defHttp.get<any>({
+      url: `/workflow/model/list`,
+      params: { keyword },
+    });
+  },
+
+  /** 从模型版本部署（可选：服务端占位） */
+  deployVersion: (modelId: string, version: number) => {
+    return defHttp.post<any>({
+      url: `/workflow/model/${modelId}/deploy`,
+      params: { version },
+    });
+  },
+};
+
+// ============ 工作流任务管理 API ============
+
+/**
+ * 工作流任务管理API
+ */
+export const workflowTaskApi = {
+  /**
+   * 获取我的任务列表
+   */
+  getMyTasks: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/task/my-tasks',
+      params,
+    });
+  },
+
+  /**
+   * 获取任务列表
+   */
+  getList: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/task/list',
+      params,
+    });
+  },
+
+  /**
+   * 完成任务
+   */
+  complete: (taskId: string, data: any) => {
+    return defHttp.post<any>({
+      url: `/workflow/task/complete/${taskId}`,
+      data,
+    });
+  },
+
+  /**
+   * 委派任务
+   */
+  delegate: (taskId: string, assignee: string) => {
+    return defHttp.post<any>({
+      url: `/workflow/task/delegate/${taskId}`,
+      params: { assignee },
+    });
+  },
+
+  /**
+   * 转办任务
+   */
+  transfer: (taskId: string, assignee: string) => {
+    return defHttp.post<any>({
+      url: `/workflow/task/transfer/${taskId}`,
+      params: { assignee },
+    });
+  },
+
+  /**
+   * 退回任务
+   */
+  reject: (taskId: string, data: any) => {
+    return defHttp.post<any>({
+      url: `/workflow/task/reject/${taskId}`,
+      data,
+    });
+  },
+};
+
+// ============ 工作流实例管理 API ============
+
+/**
+ * 工作流实例管理API
+ */
+export const workflowInstanceApi = {
+  /**
+   * 获取流程实例列表
+   */
+  getList: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/instance/list',
+      params,
+    });
+  },
+
+  /**
+   * 删除流程实例
+   */
+  delete: (instanceId: string, reason?: string) => {
+    return defHttp.delete<any>({
+      url: `/workflow/instance/${instanceId}`,
+      params: { reason },
+    });
+  },
+
+  /**
+   * 挂起流程实例
+   */
+  suspend: (instanceId: string) => {
+    return defHttp.post<any>({
+      url: `/workflow/instance/suspend/${instanceId}`,
+    });
+  },
+
+  /**
+   * 激活流程实例
+   */
+  activate: (instanceId: string) => {
+    return defHttp.post<any>({
+      url: `/workflow/instance/activate/${instanceId}`,
+    });
+  },
+};
+
+// ============ 工作流历史管理 API ============
+
+/**
+ * 工作流历史管理API
+ */
+export const workflowHistoryApi = {
+  /**
+   * 获取历史任务列表
+   */
+  getHistoryTasks: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/history/tasks',
+      params,
+    });
+  },
+
+  /**
+   * 获取历史流程实例列表
+   */
+  getHistoryInstances: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/history/instances',
+      params,
+    });
+  },
+
+  /**
+   * 获取流程历史详情
+   */
+  getInstanceHistory: (instanceId: string) => {
+    return defHttp.get<any>({
+      url: `/workflow/history/instance/${instanceId}`,
+    });
+  },
+};
+
+// ============ 工作流统计管理 API ============
+
+/**
+ * 工作流统计管理API
+ */
+export const workflowStatsApi = {
+  /**
+   * 获取工作流统计数据
+   */
+  getStats: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/stats/overview',
+      params,
+    });
+  },
+
+  /**
+   * 获取任务统计
+   */
+  getTaskStats: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/stats/tasks',
+      params,
+    });
+  },
+
+  /**
+   * 获取流程统计
+   */
+  getProcessStats: (params: any) => {
+    return defHttp.get<any>({
+      url: '/workflow/stats/processes',
+      params,
+    });
+  },
 };

@@ -31,12 +31,14 @@ public class WorkflowEventListenerConfig implements ApplicationRunner {
         
         log.info("开始注册工作流事件监听器...");
         
-        // 注册流程部署事件监听器（临时禁用 - Flowable 7.0 API兼容性问题）
-        // TODO: 等Flowable 7.0事件API明确后重新启用
-        // processEngine.getRuntimeService()
-        //     .addEventListener(bpmnFieldPermissionParser, FlowableEngineEventType.ENTITY_CREATED);
-        
-        log.warn("流程部署事件监听器暂时禁用 - 等待Flowable 7.0 API兼容性问题解决");
+        // 注册流程部署事件监听器（Flowable 6.8.0 兼容）
+        try {
+            processEngine.getRuntimeService()
+                .addEventListener(bpmnFieldPermissionParser, FlowableEngineEventType.ENTITY_CREATED);
+            log.info("流程部署事件监听器注册成功");
+        } catch (Exception e) {
+            log.warn("流程部署事件监听器注册失败: {}", e.getMessage());
+        }
         
         log.info("工作流事件监听器注册完成");
         log.info("- BPMN字段权限解析器已注册到流程部署事件");

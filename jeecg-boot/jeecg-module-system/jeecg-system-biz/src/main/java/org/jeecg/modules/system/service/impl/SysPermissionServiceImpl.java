@@ -307,7 +307,17 @@ public class SysPermissionServiceImpl extends ServiceImpl<SysPermissionMapper, S
 	@Override
 	public boolean checkPermDuplication(String id, String url,Boolean alwaysShow) {
 		QueryWrapper<SysPermission> qw=new QueryWrapper();
-		qw.lambda().eq(true,SysPermission::getUrl,url).ne(oConvertUtils.isNotEmpty(id),SysPermission::getId,id).eq(true,SysPermission::isAlwaysShow,alwaysShow);
+		// 使用字段名而不是方法引用，避免编译时的不确定性
+		qw.eq("url", url);
+		if (oConvertUtils.isNotEmpty(id)) {
+			qw.ne("id", id);
+		}
+		// PostgreSQL兼容：将Boolean转换为适当的数据库值
+		if (alwaysShow != null) {
+			qw.eq("always_show", alwaysShow ? 1 : 0);
+		} else {
+			qw.isNull("always_show");
+		}
 		return count(qw)==0;
 	}
 

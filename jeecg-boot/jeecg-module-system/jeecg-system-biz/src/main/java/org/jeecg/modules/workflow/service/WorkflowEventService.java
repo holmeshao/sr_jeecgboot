@@ -10,17 +10,12 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * 🎯 基于Flowable 7.0新架构的工作流事件服务
+ * 🎯 基于Flowable 6.8.0的工作流事件服务
  * 
- * 考虑到Flowable 7.0的重大变化：
- * 1. IELE（内部执行事件监听器引擎）：动态监听和处理任务事件
- * 2. 事件注册表API：重新设计的事件处理机制
- * 3. 删除表单和内容引擎：专注于CMMN、BPMN和DMN
- * 
- * 这个服务提供了基于新架构的事件处理方案
+ * 兼容Spring Boot 2.7.18的稳定版本
  * 
  * @author JeecgBoot工作流集成
- * @version 1.0 (Flowable 7.0 Compatible)
+ * @version 1.0 (Flowable 6.8.0 Compatible)
  */
 @Slf4j
 @Service
@@ -40,7 +35,7 @@ public class WorkflowEventService {
      * @param processDefinitionKey 流程定义Key
      */
     public void onProcessDefinitionDeployed(String processDefinitionKey) {
-        log.info("🚀 Flowable 7.0 - 处理流程定义部署事件：{}", processDefinitionKey);
+        log.info("🚀 Flowable 6.8.0 - 处理流程定义部署事件：{}", processDefinitionKey);
         
         try {
             // 1. 获取最新版本的流程定义
@@ -77,7 +72,7 @@ public class WorkflowEventService {
      * 用于系统初始化或大规模更新时使用
      */
     public void onAllProcessDefinitionsDeployed() {
-        log.info("🚀 Flowable 7.0 - 批量处理所有流程定义部署事件");
+        log.info("🚀 Flowable 6.8.0 - 批量处理所有流程定义部署事件");
         
         try {
             List<ProcessDefinition> processDefinitions = repositoryService.createProcessDefinitionQuery()

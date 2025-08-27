@@ -78,6 +78,26 @@ export const workflowDefinitionApi = {
     defHttp.put({ url: `${Api.DefinitionToggle}/${id}/${action}` }),
 };
 
+// ===== 模型仓库 API（新增） =====
+export const workflowModelApi = {
+  // 保存或更新模型基本信息
+  saveModel: (data: any) => defHttp.post({ url: '/workflow/model', data }),
+  // 新增模型版本（保存草稿XML）
+  createVersion: (modelId: string, data: { xml: string; comment?: string }) =>
+    defHttp.post({ url: `/workflow/model/${modelId}/versions`, data }),
+  // 获取最新XML
+  getLatestXml: (modelId: string) => defHttp.get({ url: `/workflow/model/${modelId}/xml` }),
+  // 获取版本列表
+  listVersions: (modelId: string) => defHttp.get({ url: `/workflow/model/${modelId}/versions` }),
+  // 按Key获取模型
+  getByKey: (modelKey: string) => defHttp.get({ url: `/workflow/model/byKey`, params: { modelKey } }),
+  // 模型列表（关键字）
+  list: (keyword?: string) => defHttp.get({ url: `/workflow/model/list`, params: { keyword } }),
+  // 从模型部署（后端可选实现：直接传versionId；当前前端已通过上传XML复用deploy接口）
+  deployVersion: (modelId: string, version: number) =>
+    defHttp.post({ url: `/workflow/model/${modelId}/deploy`, params: { version } }),
+};
+
 // 流程实例相关
 export const workflowInstanceApi = {
   // 获取流程实例列表

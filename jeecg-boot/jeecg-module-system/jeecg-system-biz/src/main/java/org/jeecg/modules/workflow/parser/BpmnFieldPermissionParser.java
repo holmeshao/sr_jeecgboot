@@ -10,6 +10,8 @@ import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.common.engine.api.delegate.event.FlowableEngineEventType;
+import org.flowable.common.engine.api.delegate.event.FlowableEvent;
+import org.flowable.common.engine.api.delegate.event.FlowableEventListener;
 import org.flowable.engine.delegate.event.FlowableProcessEngineEvent;
 import org.flowable.engine.delegate.event.impl.FlowableProcessEventImpl;
 import org.jeecg.common.util.oConvertUtils;
@@ -47,7 +49,7 @@ import java.util.function.Consumer;
  */
 @Slf4j
 @Service
-public class BpmnFieldPermissionParser {
+public class BpmnFieldPermissionParser implements FlowableEventListener {
 
     @Autowired
     private RepositoryService repositoryService;
@@ -414,5 +416,34 @@ public class BpmnFieldPermissionParser {
             log.error("检查流程字段权限配置失败：{}", processDefinitionKey, e);
             return false;
         }
+    }
+
+    // ========== FlowableEventListener 接口实现 ==========
+    
+    @Override
+    public void onEvent(FlowableEvent event) {
+        if (event.getType() == FlowableEngineEventType.ENTITY_CREATED) {
+            // 处理流程部署事件
+            if (event instanceof FlowableProcessEngineEvent) {
+                FlowableProcessEngineEvent processEvent = (FlowableProcessEngineEvent) event;
+                // 这里可以添加自动处理流程部署的逻辑
+                log.debug("接收到流程引擎事件: {}", processEvent.getType());
+            }
+        }
+    }
+
+    @Override
+    public boolean isFailOnException() {
+        return false; // 事件处理失败不影响主流程
+    }
+
+    @Override
+    public boolean isFireOnTransactionLifecycleEvent() {
+        return false; // 不需要事务生命周期事件
+    }
+
+    @Override
+    public String getOnTransaction() {
+        return null; // 使用默认事务处理
     }
 }

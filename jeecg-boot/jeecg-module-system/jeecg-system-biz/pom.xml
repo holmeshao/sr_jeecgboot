@@ -78,16 +78,29 @@
 			<artifactId>jimubi-spring-boot-starter</artifactId>
 		</dependency>
 		
-		<!-- Flowable工作流引擎 -->
+		<!-- Flowable工作流引擎 - 兼容 Spring Boot 2.x -->
 		<dependency>
 			<groupId>org.flowable</groupId>
 			<artifactId>flowable-spring-boot-starter</artifactId>
-			<version>7.0.0</version>
+			<version>6.8.0</version>
 		</dependency>
 		<dependency>
 			<groupId>org.flowable</groupId>
 			<artifactId>flowable-json-converter</artifactId>
 			<version>6.8.0</version>
+		</dependency>
+		
+		<!-- 修正：Spring Boot 2.x 需要 javax.mail，不是 jakarta.mail -->
+		<dependency>
+			<groupId>javax.mail</groupId>
+			<artifactId>javax.mail-api</artifactId>
+			<version>1.6.2</version>
+		</dependency>
+		
+		<dependency>
+			<groupId>com.sun.mail</groupId>
+			<artifactId>javax.mail</artifactId>
+			<version>1.6.2</version>
 		</dependency>
 	</dependencies>
 	

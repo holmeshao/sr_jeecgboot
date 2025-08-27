@@ -325,3 +325,33 @@ justauth:
     type: default
     prefix: 'demo::'
     timeout: 1h
+
+# ===== Flowable工作流引擎配置 =====
+flowable:
+  # 基础配置
+  database-schema-update: true
+  db-history-used: true
+  check-process-definitions: false
+  
+  # 数据库配置 - 复用JeecgBoot数据源
+  datasource:
+    # 使用Spring的主数据源
+    # Flowable会自动使用spring.datasource配置
+  
+  # 异步执行器配置
+  async:
+    enabled: true
+    activate: true
+    default-async-job-acquire-wait-time: PT5S
+    default-timer-job-acquire-wait-time: PT5S
+  
+  # UI配置（可选）
+  ui:
+    enabled: false
+  
+  # REST API配置（可选）
+  rest:
+    enabled: false
+    
+  # 历史记录配置
+  history-level: FULL

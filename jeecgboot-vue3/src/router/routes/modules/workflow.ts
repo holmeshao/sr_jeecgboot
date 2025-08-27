@@ -24,6 +24,15 @@ const workflow: AppRouteModule = {
       },
     },
     {
+      path: 'task/my',
+      name: 'WorkflowMyTask',
+      component: () => import('@/views/workflow/task/my-task.vue'),
+      meta: {
+        title: '我的待办',
+        icon: 'ion:person-outline',
+      },
+    },
+    {
       path: 'definition',
       name: 'WorkflowDefinition',
       component: () => import('@/views/workflow/definition/index.vue'),
@@ -74,6 +83,24 @@ const workflow: AppRouteModule = {
           component: () => import('@/views/workflow/onlineForm/WorkflowConfigList.vue'),
           meta: {
             title: t('routes.workflow.workflowConfig'),
+          },
+        },
+        {
+          path: 'permission',
+          name: 'WorkflowNodePermissionList',
+          component: () => import('@/views/workflow/permission/WorkflowNodePermissionList.vue'),
+          meta: {
+            title: '节点权限配置',
+            icon: 'ion:key-outline',
+          },
+        },
+        {
+          path: 'field-designer',
+          name: 'FieldPermissionDesigner',
+          component: () => import('@/views/workflow/components/FieldPermissionDesigner.vue'),
+          meta: {
+            title: '字段权限设计器',
+            icon: 'ion:settings-outline',
           },
         },
       ],

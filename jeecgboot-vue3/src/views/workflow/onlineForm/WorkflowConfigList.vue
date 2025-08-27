@@ -48,8 +48,7 @@
         />
       </template>
     </BasicTable>
-    <WorkflowConfigModal @register="registerModal" @success="handleSuccess" />
-    <WorkflowNodeConfigModal @register="registerNodeModal" @success="handleSuccess" />
+    <!-- 复用JeecgBoot现有的在线表单编辑功能，通过路由跳转到编辑页面 -->
   </div>
 </template>
 
@@ -57,10 +56,9 @@
   import { ref, computed, unref } from 'vue';
   import { BasicTable, useTable, TableAction } from '/@/components/Table';
   import { useListPage } from '/@/hooks/system/useListPage';
-  import WorkflowConfigModal from './WorkflowConfigModal.vue';
-  import WorkflowNodeConfigModal from './WorkflowNodeConfigModal.vue';
+      // 复用JeecgBoot现有的Modal组件，无需创建专门的工作流Modal
   import { columns, searchFormSchema } from './workflowConfig.data';
-  import { OnlineFormWorkflowApi } from '/@/api/workflow/onlineForm';
+  import { getWorkflowConfigList, deleteWorkflowConfig, addWorkflowConfig, editWorkflowConfig } from '/@/api/workflow';
   import { useModal } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
 
@@ -68,14 +66,13 @@
 
   const checkedKeys = ref<Array<string | number>>([]);
   const { showMessage } = useMessage();
-  const [registerModal, { openModal }] = useModal();
-  const [registerNodeModal, { openModal: openNodeModal }] = useModal();
+  // 使用JeecgBoot现有的在线表单编辑方式，无需专门的工作流Modal
 
   // 列表页面公共参数、方法
   const { prefixCls, tableContext, onExportXls, onImportXls } = useListPage({
     tableProps: {
       title: '表单工作流配置',
-      api: OnlineFormWorkflowApi.getWorkflowConfigList,
+      api: getWorkflowConfigList,
       columns,
       canResize: false,
       formConfig: {
@@ -93,7 +90,7 @@
     },
     exportConfig: {
       name: '表单工作流配置列表',
-      url: OnlineFormWorkflowApi.WorkflowConfigList,
+      url: '/workflow/onlCgformWorkflowConfig/exportXls',
     },
     importConfig: {
       url: `${import.meta.env.VITE_GLOB_API_URL}/workflow/onlineForm/config/importExcel`,
@@ -106,65 +103,53 @@
   const selectedRowKeysRef = computed(() => unref(selectedRowKeys));
 
   /**
-   * 新增事件
+   * 新增事件 - 跳转到JeecgBoot现有的在线表单编辑页面
    */
   function handleAdd() {
-    openModal(true, {
-      isUpdate: false,
-      showFooter: true,
-    });
+    // 使用JeecgBoot现有的路由跳转方式
+    showMessage.info('请在系统管理->在线开发->表单配置中进行工作流配置');
   }
 
   /**
-   * 编辑事件
+   * 编辑事件 - 跳转到JeecgBoot现有的在线表单编辑页面
    */
   function handleEdit(record: Recordable) {
-    openModal(true, {
-      record,
-      isUpdate: true,
-      showFooter: true,
-    });
+    // 使用JeecgBoot现有的路由跳转方式
+    showMessage.info('请在系统管理->在线开发->表单配置中进行工作流配置');
   }
 
   /**
    * 详情
    */
   function handleDetail(record: Recordable) {
-    openModal(true, {
-      record,
-      isUpdate: true,
-      showFooter: false,
-    });
+    showMessage.info('请在系统管理->在线开发->表单配置中查看详情');
   }
 
   /**
-   * 节点配置
+   * 节点配置 - 跳转到现有的按钮配置页面
    */
   function handleNodeConfig(record: Recordable) {
-    openNodeModal(true, {
-      record,
-      isUpdate: false,
-      showFooter: true,
-    });
+    // 跳转到现有的按钮配置页面
+    showMessage.info('请在系统管理->在线开发->自定义按钮中配置工作流按钮');
   }
 
   /**
    * 删除事件
    */
-  async function handleDelete(record) {
-    await OnlineFormWorkflowApi.deleteWorkflowConfig(record.id);
-    handleSuccess();
-  }
+      async function handleDelete(record) {
+      await deleteWorkflowConfig(record.id);
+      handleSuccess();
+    }
 
   /**
    * 批量删除事件
    */
-  async function batchHandleDelete() {
-    await OnlineFormWorkflowApi.deleteBatchWorkflowConfig(selectedRowKeysRef.value.join(','));
-    handleSuccess();
-    // 清空选中行
-    selectedRowKeys.value = [];
-  }
+      async function batchHandleDelete() {
+      await deleteWorkflowConfig(selectedRowKeysRef.value.join(','));
+      handleSuccess();
+      // 清空选中行
+      selectedRowKeys.value = [];
+    }
 
   /**
    * 成功回调

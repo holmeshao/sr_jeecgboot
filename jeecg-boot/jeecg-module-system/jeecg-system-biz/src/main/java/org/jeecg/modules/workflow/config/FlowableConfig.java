@@ -6,8 +6,10 @@ import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.ProcessEngineConfiguration;
 import org.flowable.spring.SpringProcessEngineConfiguration;
 import org.flowable.spring.boot.EngineConfigurationConfigurer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
@@ -21,6 +23,9 @@ import javax.sql.DataSource;
 @Configuration
 public class FlowableConfig implements EngineConfigurationConfigurer<SpringProcessEngineConfiguration> {
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @Override
     public void configure(SpringProcessEngineConfiguration engineConfiguration) {
         // 设置历史记录级别为FULL，记录所有操作历史
@@ -28,9 +33,6 @@ public class FlowableConfig implements EngineConfigurationConfigurer<SpringProce
         
         // 设置数据库更新策略：如果表不存在则创建
         engineConfiguration.setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE);
-        
-        // 设置默认字符集 - Flowable 7.0已移除此方法
-        // engineConfiguration.setDefaultCharset("UTF-8");
         
         // 启用作业执行器
         engineConfiguration.setAsyncExecutorActivate(true);
@@ -43,6 +45,8 @@ public class FlowableConfig implements EngineConfigurationConfigurer<SpringProce
         // 设置自动部署
         engineConfiguration.setDeploymentMode("single-resource");
         
+        // 邮件功能通过配置文件禁用，这里不需要额外设置
+        
         log.info("Flowable工作流引擎配置完成");
     }
     
@@ -53,6 +57,9 @@ public class FlowableConfig implements EngineConfigurationConfigurer<SpringProce
     public ProcessEngine processEngine(DataSource dataSource) {
         SpringProcessEngineConfiguration configuration = new SpringProcessEngineConfiguration();
         configuration.setDataSource(dataSource);
+        
+        // 设置事务管理器 - 修复启动错误
+        configuration.setTransactionManager(transactionManager);
         
         // 应用配置
         configure(configuration);

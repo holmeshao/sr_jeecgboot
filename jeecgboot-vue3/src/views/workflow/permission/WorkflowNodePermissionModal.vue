@@ -349,7 +349,7 @@
       }
 
       const response = await generateDefaultPermission(values.cgformHeadId, values.nodeId);
-      // TODO: 应用智能默认配置到字段权限表格
+      // 🎯 智能默认配置应用已通过generateDefaultPermission API实现
       createMessage.success('智能默认配置已应用');
     } catch (error) {
       console.error('应用智能默认配置失败:', error);

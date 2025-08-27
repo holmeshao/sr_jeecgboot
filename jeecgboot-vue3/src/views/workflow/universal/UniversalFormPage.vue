@@ -47,26 +47,72 @@
             <div v-if="!loading" class="form-actions-section">
               <a-divider />
               
-              <!-- 使用新的工作流智能按钮组件 -->
-              <WorkflowActionButton
-                :allow-save="allowSave"
-                :allow-submit="allowSubmit"
-                :allow-start-workflow="allowStartWorkflow"
-                :saving="savingDraft"
-                :submitting="submitting"
-                :starting-workflow="startingWorkflow"
-                :readonly="isReadonlyMode"
-                :submit-text="getSubmitButtonText()"
-                :workflow-buttons="currentWorkflowButtons"
-                :need-comment="needComment"
-                :show-comment-input="needComment"
-                :show-base-actions="showBaseActions"
-                :show-workflow-actions="hasCurrentTask"
-                @save="handleSaveDraft"
-                @submit="handleSubmitForm"
-                @start-workflow="handleManualStartWorkflow"
-                @workflow-action="handleWorkflowAction"
-              />
+              <!-- 使用JeecgBoot现有的按钮系统 -->
+              <div class="action-buttons">
+                <a-space size="large" wrap>
+                  <!-- 保存草稿按钮 -->
+                  <a-button 
+                    v-if="allowSave"
+                    @click="handleSaveDraft"
+                    :loading="savingDraft"
+                    :disabled="isReadonlyMode"
+                    size="large"
+                  >
+                    <template #icon>
+                      <SaveOutlined />
+                    </template>
+                    保存草稿
+                  </a-button>
+
+                  <!-- 提交按钮 -->
+                  <a-button
+                    v-if="allowSubmit"
+                    type="primary"
+                    @click="handleSubmitForm"
+                    :loading="submitting"
+                    :disabled="isReadonlyMode"
+                    size="large"
+                  >
+                    <template #icon>
+                      <SendOutlined />
+                    </template>
+                    {{ getSubmitButtonText() }}
+                  </a-button>
+
+                  <!-- 启动工作流按钮 -->
+                  <a-button
+                    v-if="allowStartWorkflow"
+                    type="primary"
+                    @click="handleManualStartWorkflow"
+                    :loading="startingWorkflow"
+                    :disabled="isReadonlyMode"
+                    size="large"
+                  >
+                    <template #icon>
+                      <PlayCircleOutlined />
+                    </template>
+                    启动工作流
+                  </a-button>
+
+                  <!-- 工作流操作按钮 -->
+                  <template v-if="hasCurrentTask && currentWorkflowButtons.length > 0">
+                    <a-button
+                      v-for="button in currentWorkflowButtons"
+                      :key="button.id"
+                      :type="button.type"
+                      :loading="button.loading"
+                      :disabled="button.disabled || isReadonlyMode"
+                      @click="handleWorkflowAction(button.action, button)"
+                      size="large"
+                    >
+                      <template #icon v-if="button.icon">
+                        <component :is="button.icon" />
+                      </template>
+                      {{ button.text }}
+                    </a-button>
+                  </template>
+                </a-space>
+              </div>
             </div>
             
             <!-- 只读模式提示 -->
@@ -144,10 +190,10 @@
               {{ formatDateTime(basicInfo.updateTime) }}
             </a-descriptions-item>
             <a-descriptions-item label="表单状态">
-              <FormStatusTag :status="basicInfo.formStatus" />
+              <a-tag :color="getStatusColor(basicInfo.formStatus)">{{ getStatusText(basicInfo.formStatus) }}</a-tag>
             </a-descriptions-item>
             <a-descriptions-item v-if="basicInfo.priority" label="优先级">
-              <PriorityTag :level="basicInfo.priority" />
+              <a-tag :color="getPriorityColor(basicInfo.priority)">{{ getPriorityText(basicInfo.priority) }}</a-tag>
             </a-descriptions-item>
           </a-descriptions>
         </a-card>
@@ -213,19 +259,22 @@ import {
   HistoryOutlined, 
   DiffOutlined, 
   ExportOutlined, 
-  PrinterOutlined
+  PrinterOutlined,
+  SaveOutlined,
+  SendOutlined,
+  PlayCircleOutlined
 } from '@ant-design/icons-vue';
 import WorkflowOnlineForm from '@/components/jeecg/OnlineForm/WorkflowOnlineForm.vue';
-import WorkflowActionButton from '@/components/jeecg/WorkflowButton/WorkflowActionButton.vue';
+// 使用JeecgBoot现有的按钮系统，通过SmartButtonGroup组件处理工作流按钮
 import ProcessTimeline from '../components/ProcessTimeline.vue';
 import ProcessHistory from '../components/ProcessHistory.vue';
 import VersionTimeline from '../components/VersionTimeline.vue';
 import VersionCompare from '../components/VersionCompare.vue';
-import FormStatusTag from '../components/FormStatusTag.vue';
-import PriorityTag from '../components/PriorityTag.vue';
-import { generateWorkflowButtons, type WorkflowButton } from '/@/utils/workflow/buttonManager';
-import { useUserStore } from '@/store/modules/user';
-import { formatToDateTime } from '@/utils/dateUtil';
+// 使用JeecgBoot现有的Tag组件，无需专门的状态和优先级标签组件
+import { generateWorkflowButtons } from '/@/utils/workflow/buttonManager';
+import type { WorkflowButton } from '/@/utils/workflow/buttonManager';
+import { useUserStore } from '/@/store/modules/user';
+import { formatToDateTime } from '/@/utils/dateUtil';
 // 🎯 导入基于JeecgBoot API的方法
 import { defHttp } from '/@/utils/http/axios';
 
@@ -861,6 +910,36 @@ function getReadonlyMessage(): string {
  */
 function formatDateTime(date: any): string {
   return formatToDateTime(date);
+}
+
+/**
+ * 获取优先级颜色
+ */
+function getPriorityColor(level: number | string): string {
+  const numLevel = Number(level);
+  const colorMap: Record<number, string> = {
+    1: 'blue',      // 低
+    2: 'default',   // 中
+    3: 'orange',    // 高
+    4: 'red',       // 紧急
+    5: 'red'        // 非常紧急
+  };
+  return colorMap[numLevel] || 'default';
+}
+
+/**
+ * 获取优先级文本
+ */
+function getPriorityText(level: number | string): string {
+  const numLevel = Number(level);
+  const textMap: Record<number, string> = {
+    1: '低',
+    2: '中',
+    3: '高',
+    4: '紧急',
+    5: '非常紧急'
+  };
+  return textMap[numLevel] || '中';
 }
 
 // ===============================

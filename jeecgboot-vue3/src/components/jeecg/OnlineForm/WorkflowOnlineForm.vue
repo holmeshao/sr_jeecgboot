@@ -47,7 +47,8 @@
                 :key="subTable.key"
                 :tab="subTable.label"
               >
-                <OnlineSubTable
+                <!-- 复用JeecgBoot现有的JVxeTable子表功能 -->
+                <JVxeTable
                   :ref="el => setSubTableRef(subTable.key, el)"
                   :table-config="subTable"
                   :parent-data="formData"
@@ -94,7 +95,8 @@ import {
   SendOutlined 
 } from '@ant-design/icons-vue';
 import { defHttp } from '/@/utils/http/axios';
-import OnlineSubTable from './OnlineSubTable.vue';
+// 复用JeecgBoot现有的JVxeTable子表功能，无需专门的OnlineSubTable组件
+import { JVxeTable } from '/@/components/jeecg/JVxeTable';
 import { 
   handleWorkflowError, 
   withErrorHandler, 

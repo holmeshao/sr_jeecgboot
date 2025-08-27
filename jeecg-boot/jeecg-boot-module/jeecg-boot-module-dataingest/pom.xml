@@ -52,6 +52,12 @@
 <!--            <groupId>org.jeecgframework.boot</groupId>-->
 <!--            <artifactId>jeecg-system-local-api</artifactId>-->
 <!--        </dependency>-->
+        <!-- JeecgBoot核心依赖 -->
+        <dependency>
+            <groupId>org.jeecgframework.boot</groupId>
+            <artifactId>jeecg-boot-base-core</artifactId>
+        </dependency>
+        
         <!-- 微服务starter和system微服务 api -->
         <dependency>
             <groupId>org.jeecgframework.boot</groupId>

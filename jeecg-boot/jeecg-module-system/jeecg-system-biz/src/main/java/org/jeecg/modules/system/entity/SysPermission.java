@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 import org.jeecg.common.aspect.annotation.Dict;
 import org.jeecg.modules.system.constant.DefIndexConst;
+import org.jeecg.modules.system.handler.BooleanToSmallIntTypeHandler;
 
 /**
  * <p>
@@ -89,20 +90,20 @@ public class SysPermission implements Serializable {
 	/**
 	 * 是否叶子节点: 1:是  0:不是
 	 */
-	@TableField(value="is_leaf")
+	@TableField(value="is_leaf", typeHandler = BooleanToSmallIntTypeHandler.class)
 	private boolean leaf;
 	
 	/**
 	 * 是否路由菜单: 0:不是  1:是（默认值1）
 	 */
-	@TableField(value="is_route")
+	@TableField(value="is_route", typeHandler = BooleanToSmallIntTypeHandler.class)
 	private boolean route;
 
 
 	/**
 	 * 是否缓存页面: 0:不是  1:是（默认值1）
 	 */
-	@TableField(value="keep_alive")
+	@TableField(value="keep_alive", typeHandler = BooleanToSmallIntTypeHandler.class)
 	private boolean keepAlive;
 
 	/**
@@ -128,11 +129,13 @@ public class SysPermission implements Serializable {
 	/**
 	 * 是否隐藏路由菜单: 0否,1是（默认值0）
 	 */
+	@TableField(typeHandler = BooleanToSmallIntTypeHandler.class)
 	private boolean hidden;
 
 	/**
 	 * 是否隐藏Tab: 0否,1是（默认值0）
 	 */
+	@TableField(typeHandler = BooleanToSmallIntTypeHandler.class)
 	private boolean hideTab;
 
 	/**
@@ -154,10 +157,12 @@ public class SysPermission implements Serializable {
 	private java.lang.String status;
 	
 	/**alwaysShow*/
+	@TableField(typeHandler = BooleanToSmallIntTypeHandler.class)
     private boolean alwaysShow;
 
 	/*update_begin author:wuxianquan date:20190908 for:实体增加字段 */
     /** 外链菜单打开方式 0/内部打开 1/外部打开 */
+    @TableField(typeHandler = BooleanToSmallIntTypeHandler.class)
     private boolean internalOrExternal;
 	/*update_end author:wuxianquan date:20190908 for:实体增加字段 */
 

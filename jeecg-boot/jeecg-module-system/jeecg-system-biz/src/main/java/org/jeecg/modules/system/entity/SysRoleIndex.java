@@ -13,6 +13,7 @@ import lombok.experimental.Accessors;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.jeecgframework.poi.excel.annotation.Excel;
+import org.jeecg.modules.system.handler.BooleanToSmallIntTypeHandler;
 
 /**
  * @Description: 角色首页配置
@@ -48,7 +49,7 @@ public class SysRoleIndex {
 	 */
 	@Excel(name = "是否路由菜单", width = 15)
 	@Schema(description = "是否路由菜单")
-	@TableField(value="is_route")
+	@TableField(value="is_route", typeHandler = BooleanToSmallIntTypeHandler.class)
 	private boolean route;
 	/**优先级*/
 	@Excel(name = "优先级", width = 15)

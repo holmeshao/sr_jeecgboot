@@ -29,16 +29,8 @@
       <a-row justify="space-between" align="middle">
         <a-col>
           <a-space>
-            <a-switch 
-              v-model:checked="showOnlyDifferences" 
-              checked-children="仅显示差异" 
-              un-checked-children="显示全部" 
-            />
-            <a-select 
-              v-model:value="compareMode" 
-              style="width: 120px;" 
-              size="small"
-            >
+            <a-switch v-model:checked="showOnlyDifferences" checked-children="仅显示差异" un-checked-children="显示全部" />
+            <a-select v-model:value="compareMode" style="width: 120px" size="small">
               <a-select-option value="side-by-side">并排对比</a-select-option>
               <a-select-option value="unified">统一视图</a-select-option>
             </a-select>
@@ -68,11 +60,7 @@
             <div class="version-panel left-panel">
               <h4>{{ getVersionTitle(0) }}</h4>
               <div class="field-list">
-                <div 
-                  v-for="field in displayFields" 
-                  :key="field.name"
-                  :class="['field-item', getFieldStatus(field, 0)]"
-                >
+                <div v-for="field in displayFields" :key="field.name" :class="['field-item', getFieldStatus(field, 0)]">
                   <div class="field-label">{{ field.label }}</div>
                   <div class="field-value">
                     <span :class="{ 'diff-highlight': field.isDifferent }">
@@ -87,11 +75,7 @@
             <div class="version-panel right-panel">
               <h4>{{ getVersionTitle(1) }}</h4>
               <div class="field-list">
-                <div 
-                  v-for="field in displayFields" 
-                  :key="field.name"
-                  :class="['field-item', getFieldStatus(field, 1)]"
-                >
+                <div v-for="field in displayFields" :key="field.name" :class="['field-item', getFieldStatus(field, 1)]">
                   <div class="field-label">{{ field.label }}</div>
                   <div class="field-value">
                     <span :class="{ 'diff-highlight': field.isDifferent }">
@@ -108,17 +92,13 @@
       <!-- 统一视图模式 -->
       <div v-else class="unified-compare">
         <div class="field-list">
-          <div 
-            v-for="field in displayFields" 
-            :key="field.name"
-            :class="['field-item-unified', { 'field-different': field.isDifferent }]"
-          >
+          <div v-for="field in displayFields" :key="field.name" :class="['field-item-unified', { 'field-different': field.isDifferent }]">
             <div class="field-header">
               <h5>{{ field.label }}</h5>
               <a-tag v-if="field.isDifferent" color="orange" size="small">已变更</a-tag>
               <a-tag v-else color="green" size="small">无变更</a-tag>
             </div>
-            
+
             <div class="field-content" v-if="field.isDifferent">
               <div class="value-before">
                 <span class="value-label">变更前：</span>
@@ -129,7 +109,7 @@
                 <span class="value-text added">{{ formatFieldValue(field.rightValue) }}</span>
               </div>
             </div>
-            
+
             <div class="field-content" v-else>
               <div class="value-same">
                 <span class="value-text">{{ formatFieldValue(field.leftValue) }}</span>
@@ -157,15 +137,11 @@
             <a-statistic title="时间间隔" :value="timeDiff" suffix="分钟" />
           </a-col>
         </a-row>
-        
+
         <div class="changed-fields-list" v-if="changedFields.length > 0">
           <h5>变更字段详情:</h5>
           <a-space wrap>
-            <a-tag 
-              v-for="field in changedFields" 
-              :key="field.name"
-              color="orange"
-            >
+            <a-tag v-for="field in changedFields" :key="field.name" color="orange">
               {{ field.label }}
             </a-tag>
           </a-space>
@@ -176,433 +152,433 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue';
-import { message } from 'ant-design-vue';
-import { ExportOutlined, SwapOutlined } from '@ant-design/icons-vue';
-import { useMethods } from '/@/hooks/system/useMethods';
-import dayjs from 'dayjs';
-import { formatToDateTime } from '@/utils/dateUtil';
+  import { ref, computed, reactive } from 'vue';
+  import { message } from 'ant-design-vue';
+  import { ExportOutlined, SwapOutlined } from '@ant-design/icons-vue';
+  import { useMethods } from '/@/hooks/system/useMethods';
+  import dayjs from 'dayjs';
+  import { formatToDateTime } from '@/utils/dateUtil';
 
-// 定义组件属性
-interface Props {
-  versions: any[];
-  formConfig?: any;
-}
+  // 定义组件属性
+  interface Props {
+    versions: any[];
+    formConfig?: any;
+  }
 
-const props = defineProps<Props>();
+  const props = defineProps<Props>();
 
-// 响应式数据
-const showOnlyDifferences = ref(true);
-const compareMode = ref('side-by-side');
+  // 响应式数据
+  const showOnlyDifferences = ref(true);
+  const compareMode = ref('side-by-side');
 
-// 字段显示名称映射
-const fieldDisplayNames = reactive({
-  'title': '标题',
-  'description': '描述',
-  'urgency_level': '紧急程度',
-  'project_id': '项目',
-  'report_no': '工单编号',
-  'create_time': '创建时间',
-  'update_time': '更新时间',
-  'status': '状态',
-  'priority': '优先级',
-  'assignee': '分配人',
-  'comment': '备注'
-});
-
-// 计算属性
-const allFields = computed(() => {
-  if (!props.versions || props.versions.length < 2) return [];
-  
-  const leftData = props.versions[0]?.formData || {};
-  const rightData = props.versions[1]?.formData || {};
-  
-  // 获取所有字段
-  const allKeys = new Set([...Object.keys(leftData), ...Object.keys(rightData)]);
-  
-  return Array.from(allKeys).map(key => {
-    const leftValue = leftData[key];
-    const rightValue = rightData[key];
-    const isDifferent = !isEqual(leftValue, rightValue);
-    
-    return {
-      name: key,
-      label: getFieldDisplayName(key),
-      leftValue,
-      rightValue,
-      isDifferent
-    };
+  // 字段显示名称映射
+  const fieldDisplayNames = reactive({
+    title: '标题',
+    description: '描述',
+    urgency_level: '紧急程度',
+    project_id: '项目',
+    report_no: '工单编号',
+    create_time: '创建时间',
+    update_time: '更新时间',
+    status: '状态',
+    priority: '优先级',
+    assignee: '分配人',
+    comment: '备注',
   });
-});
 
-const displayFields = computed(() => {
-  if (showOnlyDifferences.value) {
-    return allFields.value.filter(field => field.isDifferent);
+  // 计算属性
+  const allFields = computed(() => {
+    if (!props.versions || props.versions.length < 2) return [];
+
+    const leftData = props.versions[0]?.formData || {};
+    const rightData = props.versions[1]?.formData || {};
+
+    // 获取所有字段
+    const allKeys = new Set([...Object.keys(leftData), ...Object.keys(rightData)]);
+
+    return Array.from(allKeys).map((key) => {
+      const leftValue = leftData[key];
+      const rightValue = rightData[key];
+      const isDifferent = !isEqual(leftValue, rightValue);
+
+      return {
+        name: key,
+        label: getFieldDisplayName(key),
+        leftValue,
+        rightValue,
+        isDifferent,
+      };
+    });
+  });
+
+  const displayFields = computed(() => {
+    if (showOnlyDifferences.value) {
+      return allFields.value.filter((field) => field.isDifferent);
+    }
+    return allFields.value;
+  });
+
+  const changedFields = computed(() => {
+    return allFields.value.filter((field) => field.isDifferent);
+  });
+
+  const changeRate = computed(() => {
+    if (allFields.value.length === 0) return 0;
+    return (changedFields.value.length / allFields.value.length) * 100;
+  });
+
+  const timeDiff = computed(() => {
+    if (!props.versions || props.versions.length < 2) return 0;
+
+    const time1 = props.versions[0]?.timestamp;
+    const time2 = props.versions[1]?.timestamp;
+
+    if (!time1 || !time2) return 0;
+
+    return Math.abs(time1 - time2) / (1000 * 60); // 转换为分钟
+  });
+
+  /**
+   * 获取版本标签
+   */
+  function getVersionLabel(index: number): string {
+    if (!props.versions || !props.versions[index]) return '';
+
+    const version = props.versions[index];
+    const otherVersion = props.versions[1 - index];
+
+    if (!otherVersion) return '当前版本';
+
+    if (version.timestamp > otherVersion.timestamp) {
+      return '较新版本';
+    } else {
+      return '较旧版本';
+    }
   }
-  return allFields.value;
-});
 
-const changedFields = computed(() => {
-  return allFields.value.filter(field => field.isDifferent);
-});
+  /**
+   * 获取版本标题
+   */
+  function getVersionTitle(index: number): string {
+    if (!props.versions || !props.versions[index]) return '';
 
-const changeRate = computed(() => {
-  if (allFields.value.length === 0) return 0;
-  return (changedFields.value.length / allFields.value.length) * 100;
-});
-
-const timeDiff = computed(() => {
-  if (!props.versions || props.versions.length < 2) return 0;
-  
-  const time1 = props.versions[0]?.timestamp;
-  const time2 = props.versions[1]?.timestamp;
-  
-  if (!time1 || !time2) return 0;
-  
-  return Math.abs(time1 - time2) / (1000 * 60); // 转换为分钟
-});
-
-/**
- * 获取版本标签
- */
-function getVersionLabel(index: number): string {
-  if (!props.versions || !props.versions[index]) return '';
-  
-  const version = props.versions[index];
-  const otherVersion = props.versions[1 - index];
-  
-  if (!otherVersion) return '当前版本';
-  
-  if (version.timestamp > otherVersion.timestamp) {
-    return '较新版本';
-  } else {
-    return '较旧版本';
+    const version = props.versions[index];
+    return `v${version.versionNumber} - ${getNodeDisplayName(version.nodeCode)}`;
   }
-}
 
-/**
- * 获取版本标题
- */
-function getVersionTitle(index: number): string {
-  if (!props.versions || !props.versions[index]) return '';
-  
-  const version = props.versions[index];
-  return `v${version.versionNumber} - ${getNodeDisplayName(version.nodeCode)}`;
-}
-
-/**
- * 获取节点显示名称
- */
-function getNodeDisplayName(nodeCode: string): string {
-  const nameMap = {
-    'start': '流程开始',
-    'submit': '提交申请',
-    'approve': '审批节点',
-    'reject': '拒绝节点',
-    'complete': '流程完成'
-  };
-  return nameMap[nodeCode] || nodeCode;
-}
-
-/**
- * 获取字段显示名称
- */
-function getFieldDisplayName(fieldName: string): string {
-  return fieldDisplayNames[fieldName] || fieldName;
-}
-
-/**
- * 格式化时间
- */
-function formatTime(timestamp: number): string {
-  return formatToDateTime(new Date(timestamp));
-}
-
-/**
- * 格式化字段值
- */
-function formatFieldValue(value: any): string {
-  if (value === null || value === undefined) {
-    return '(空)';
-  }
-  
-  if (typeof value === 'boolean') {
-    return value ? '是' : '否';
-  }
-  
-  if (typeof value === 'object') {
-    return JSON.stringify(value, null, 2);
-  }
-  
-  if (typeof value === 'string' && value.trim() === '') {
-    return '(空字符串)';
-  }
-  
-  return String(value);
-}
-
-/**
- * 获取字段状态
- */
-function getFieldStatus(field: any, versionIndex: number): string {
-  if (!field.isDifferent) return 'same';
-  
-  const leftValue = field.leftValue;
-  const rightValue = field.rightValue;
-  
-  if (versionIndex === 0) {
-    // 左侧版本
-    if (leftValue === null || leftValue === undefined) return 'added';
-    if (rightValue === null || rightValue === undefined) return 'removed';
-    return 'modified';
-  } else {
-    // 右侧版本
-    if (rightValue === null || rightValue === undefined) return 'removed';
-    if (leftValue === null || leftValue === undefined) return 'added';
-    return 'modified';
-  }
-}
-
-/**
- * 判断两个值是否相等
- */
-function isEqual(a: any, b: any): boolean {
-  if (a === b) return true;
-  
-  if (a === null || a === undefined || b === null || b === undefined) {
-    return a === b;
-  }
-  
-  if (typeof a !== typeof b) return false;
-  
-  if (typeof a === 'object') {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-  
-  return String(a) === String(b);
-}
-
-/**
- * 交换版本
- */
-function switchVersions() {
-  if (props.versions.length >= 2) {
-    const temp = props.versions[0];
-    props.versions[0] = props.versions[1];
-    props.versions[1] = temp;
-  }
-}
-
-/**
- * 导出对比结果
- */
-async function exportComparison() {
-  // TODO: 实现导出功能
-  try {
-    // 导出版本对比详情
-    const { handleExportXls } = useMethods();
-    
-    const exportParams = {
-      formId: props.formId,
-      leftVersion: props.leftVersion,
-      rightVersion: props.rightVersion,
-      differences: differences.value
+  /**
+   * 获取节点显示名称
+   */
+  function getNodeDisplayName(nodeCode: string): string {
+    const nameMap = {
+      start: '流程开始',
+      submit: '提交申请',
+      approve: '审批节点',
+      reject: '拒绝节点',
+      complete: '流程完成',
     };
+    return nameMap[nodeCode] || nodeCode;
+  }
 
-    const fileName = `版本对比详情_${props.formId}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
-    await handleExportXls(fileName, '/workflow/version/compare/export', exportParams);
-    
-    message.success('导出成功');
-  } catch (error) {
-    console.error('导出失败:', error);
-    message.error('导出失败，请重试');
-  };
-}
+  /**
+   * 获取字段显示名称
+   */
+  function getFieldDisplayName(fieldName: string): string {
+    return fieldDisplayNames[fieldName] || fieldName;
+  }
+
+  /**
+   * 格式化时间
+   */
+  function formatTime(timestamp: number): string {
+    return formatToDateTime(new Date(timestamp));
+  }
+
+  /**
+   * 格式化字段值
+   */
+  function formatFieldValue(value: any): string {
+    if (value === null || value === undefined) {
+      return '(空)';
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? '是' : '否';
+    }
+
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 2);
+    }
+
+    if (typeof value === 'string' && value.trim() === '') {
+      return '(空字符串)';
+    }
+
+    return String(value);
+  }
+
+  /**
+   * 获取字段状态
+   */
+  function getFieldStatus(field: any, versionIndex: number): string {
+    if (!field.isDifferent) return 'same';
+
+    const leftValue = field.leftValue;
+    const rightValue = field.rightValue;
+
+    if (versionIndex === 0) {
+      // 左侧版本
+      if (leftValue === null || leftValue === undefined) return 'added';
+      if (rightValue === null || rightValue === undefined) return 'removed';
+      return 'modified';
+    } else {
+      // 右侧版本
+      if (rightValue === null || rightValue === undefined) return 'removed';
+      if (leftValue === null || leftValue === undefined) return 'added';
+      return 'modified';
+    }
+  }
+
+  /**
+   * 判断两个值是否相等
+   */
+  function isEqual(a: any, b: any): boolean {
+    if (a === b) return true;
+
+    if (a === null || a === undefined || b === null || b === undefined) {
+      return a === b;
+    }
+
+    if (typeof a !== typeof b) return false;
+
+    if (typeof a === 'object') {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    return String(a) === String(b);
+  }
+
+  /**
+   * 交换版本
+   */
+  function switchVersions() {
+    if (props.versions.length >= 2) {
+      const temp = props.versions[0];
+      props.versions[0] = props.versions[1];
+      props.versions[1] = temp;
+    }
+  }
+
+  /**
+   * 导出对比结果
+   */
+  async function exportComparison() {
+    // 🎯 版本对比导出功能实现
+    try {
+      // 导出版本对比详情
+      const { handleExportXls } = useMethods();
+
+      const exportParams = {
+        formId: props.formId,
+        leftVersion: props.leftVersion,
+        rightVersion: props.rightVersion,
+        differences: differences.value,
+      };
+
+      const fileName = `版本对比详情_${props.formId}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
+      await handleExportXls(fileName, '/workflow/version/compare/export', exportParams);
+
+      message.success('导出成功');
+    } catch (error) {
+      console.error('导出失败:', error);
+      message.error('导出失败，请重试');
+    }
+  }
 </script>
 
 <style lang="less" scoped>
-.version-compare {
-  .compare-header {
-    margin-bottom: 16px;
-  }
-
-  .compare-options {
-    margin-bottom: 24px;
-    padding: 12px 16px;
-    background: #fafafa;
-    border-radius: 6px;
-  }
-
-  .compare-content {
-    margin-bottom: 24px;
-
-    .side-by-side-compare {
-      .version-panel {
-        border: 1px solid #d9d9d9;
-        border-radius: 6px;
-        padding: 16px;
-        background: white;
-
-        &.left-panel {
-          border-right: 2px solid #1890ff;
-        }
-
-        &.right-panel {
-          border-left: 2px solid #52c41a;
-        }
-
-        h4 {
-          margin: 0 0 16px 0;
-          padding-bottom: 8px;
-          border-bottom: 1px solid #f0f0f0;
-          font-weight: 600;
-        }
-
-        .field-list {
-          .field-item {
-            display: flex;
-            margin-bottom: 12px;
-            padding: 8px;
-            border-radius: 4px;
-            transition: all 0.2s;
-
-            &.same {
-              background: #f6ffed;
-              border-left: 3px solid #52c41a;
-            }
-
-            &.modified {
-              background: #fff7e6;
-              border-left: 3px solid #fa8c16;
-            }
-
-            &.added {
-              background: #f6ffed;
-              border-left: 3px solid #52c41a;
-            }
-
-            &.removed {
-              background: #fff2f0;
-              border-left: 3px solid #ff4d4f;
-            }
-
-            .field-label {
-              width: 80px;
-              font-weight: 500;
-              color: rgba(0, 0, 0, 0.65);
-              flex-shrink: 0;
-            }
-
-            .field-value {
-              flex: 1;
-              word-break: break-all;
-
-              .diff-highlight {
-                background: #fffb8f;
-                padding: 2px 4px;
-                border-radius: 2px;
-              }
-            }
-          }
-        }
-      }
+  .version-compare {
+    .compare-header {
+      margin-bottom: 16px;
     }
 
-    .unified-compare {
-      .field-list {
-        .field-item-unified {
-          margin-bottom: 16px;
+    .compare-options {
+      margin-bottom: 24px;
+      padding: 12px 16px;
+      background: #fafafa;
+      border-radius: 6px;
+    }
+
+    .compare-content {
+      margin-bottom: 24px;
+
+      .side-by-side-compare {
+        .version-panel {
           border: 1px solid #d9d9d9;
           border-radius: 6px;
           padding: 16px;
           background: white;
 
-          &.field-different {
-            border-color: #fa8c16;
-            background: #fff7e6;
+          &.left-panel {
+            border-right: 2px solid #1890ff;
           }
 
-          .field-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
+          &.right-panel {
+            border-left: 2px solid #52c41a;
+          }
+
+          h4 {
+            margin: 0 0 16px 0;
             padding-bottom: 8px;
             border-bottom: 1px solid #f0f0f0;
-
-            h5 {
-              margin: 0;
-              font-weight: 600;
-            }
+            font-weight: 600;
           }
 
-          .field-content {
-            .value-before,
-            .value-after,
-            .value-same {
-              margin-bottom: 8px;
-              font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+          .field-list {
+            .field-item {
+              display: flex;
+              margin-bottom: 12px;
+              padding: 8px;
+              border-radius: 4px;
+              transition: all 0.2s;
 
-              .value-label {
-                display: inline-block;
+              &.same {
+                background: #f6ffed;
+                border-left: 3px solid #52c41a;
+              }
+
+              &.modified {
+                background: #fff7e6;
+                border-left: 3px solid #fa8c16;
+              }
+
+              &.added {
+                background: #f6ffed;
+                border-left: 3px solid #52c41a;
+              }
+
+              &.removed {
+                background: #fff2f0;
+                border-left: 3px solid #ff4d4f;
+              }
+
+              .field-label {
                 width: 80px;
                 font-weight: 500;
                 color: rgba(0, 0, 0, 0.65);
+                flex-shrink: 0;
               }
 
-              .value-text {
-                &.removed {
-                  background: #ffebee;
-                  color: #d32f2f;
-                  text-decoration: line-through;
-                  padding: 2px 4px;
-                  border-radius: 2px;
-                }
+              .field-value {
+                flex: 1;
+                word-break: break-all;
 
-                &.added {
-                  background: #e8f5e8;
-                  color: #2e7d32;
+                .diff-highlight {
+                  background: #fffb8f;
                   padding: 2px 4px;
                   border-radius: 2px;
                 }
               }
             }
+          }
+        }
+      }
 
-            .value-same .value-text {
-              color: rgba(0, 0, 0, 0.85);
+      .unified-compare {
+        .field-list {
+          .field-item-unified {
+            margin-bottom: 16px;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            padding: 16px;
+            background: white;
+
+            &.field-different {
+              border-color: #fa8c16;
+              background: #fff7e6;
+            }
+
+            .field-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 12px;
+              padding-bottom: 8px;
+              border-bottom: 1px solid #f0f0f0;
+
+              h5 {
+                margin: 0;
+                font-weight: 600;
+              }
+            }
+
+            .field-content {
+              .value-before,
+              .value-after,
+              .value-same {
+                margin-bottom: 8px;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+
+                .value-label {
+                  display: inline-block;
+                  width: 80px;
+                  font-weight: 500;
+                  color: rgba(0, 0, 0, 0.65);
+                }
+
+                .value-text {
+                  &.removed {
+                    background: #ffebee;
+                    color: #d32f2f;
+                    text-decoration: line-through;
+                    padding: 2px 4px;
+                    border-radius: 2px;
+                  }
+
+                  &.added {
+                    background: #e8f5e8;
+                    color: #2e7d32;
+                    padding: 2px 4px;
+                    border-radius: 2px;
+                  }
+                }
+              }
+
+              .value-same .value-text {
+                color: rgba(0, 0, 0, 0.85);
+              }
             }
           }
         }
       }
     }
-  }
 
-  .change-summary {
-    .changed-fields-list {
-      margin-top: 16px;
+    .change-summary {
+      .changed-fields-list {
+        margin-top: 16px;
 
-      h5 {
-        margin-bottom: 8px;
-        font-weight: 500;
+        h5 {
+          margin-bottom: 8px;
+          font-weight: 500;
+        }
       }
     }
   }
-}
 
-:deep(.ant-descriptions-item-label) {
-  font-weight: 500;
-  width: 60px;
-}
+  :deep(.ant-descriptions-item-label) {
+    font-weight: 500;
+    width: 60px;
+  }
 
-:deep(.ant-card-head-title) {
-  font-size: 14px;
-}
+  :deep(.ant-card-head-title) {
+    font-size: 14px;
+  }
 
-:deep(.ant-statistic-title) {
-  font-size: 12px;
-}
+  :deep(.ant-statistic-title) {
+    font-size: 12px;
+  }
 
-:deep(.ant-statistic-content) {
-  font-size: 16px;
-}
+  :deep(.ant-statistic-content) {
+    font-size: 16px;
+  }
 </style>
