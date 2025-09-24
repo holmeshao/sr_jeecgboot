@@ -33,6 +33,8 @@ public class DataIngestServiceImpl implements IDataIngestService {
     
     @Autowired
     private OpenApiService openApiService;
+
+
     
     // 任务状态缓存
     private final ConcurrentHashMap<String, Integer> taskStatusMap = new ConcurrentHashMap<>();
@@ -67,6 +69,7 @@ public class DataIngestServiceImpl implements IDataIngestService {
                 case "FILE":
                     result = executeFileTask(task, ingestLog);
                     break;
+
                 default:
                     log.warn("未知的任务类型: {}", task.getTaskType());
                     updateLogStatus(ingestLog, 2, "任务执行失败", "未知的任务类型: " + task.getTaskType());
@@ -179,6 +182,8 @@ public class DataIngestServiceImpl implements IDataIngestService {
             return false;
         }
     }
+
+
     
     /**
      * 创建日志记录

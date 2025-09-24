@@ -7,6 +7,7 @@ import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.format.Json;
 import lombok.extern.slf4j.Slf4j;
 import org.jeecg.dataingest.debezium.config.DebeziumConfig;
+import org.jeecg.dataingest.debezium.config.DebeziumProperties;
 import org.jeecg.dataingest.entity.DataIngestMoudleIngestLog;
 import org.jeecg.dataingest.service.IDataIngestMoudleIngestLogService;
 import org.jeecg.dataingest.core.service.IPostgresWriteService;
@@ -37,6 +38,9 @@ public class DebeziumService {
     private DebeziumConfig debeziumConfig;
     
     @Autowired
+    private DebeziumProperties debeziumProperties;
+    
+    @Autowired
     private IDataIngestMoudleIngestLogService ingestLogService;
     
     @Autowired
@@ -51,6 +55,10 @@ public class DebeziumService {
     
     @PostConstruct
     public void init() {
+        if (!debeziumProperties.isEnabled()) {
+            log.info("Debezium功能已禁用，跳过初始化");
+            return;
+        }
         log.info("初始化Debezium服务");
         executor = Executors.newSingleThreadExecutor();
     }
@@ -74,6 +82,10 @@ public class DebeziumService {
      * 启动CDC监听
      */
     public void startCDC() {
+        if (!debeziumProperties.isEnabled()) {
+            log.info("Debezium功能已禁用，无法启动CDC监听");
+            return;
+        }
         startCDC("SYSTEM_CDC_TASK");
     }
     
@@ -82,6 +94,10 @@ public class DebeziumService {
      * @param taskId 任务ID
      */
     public void startCDC(String taskId) {
+        if (!debeziumProperties.isEnabled()) {
+            log.info("Debezium功能已禁用，无法启动CDC监听，任务ID: {}", taskId);
+            return;
+        }
         log.info("启动CDC监听，任务ID: {}", taskId);
         
         // 创建日志记录

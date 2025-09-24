@@ -21,8 +21,8 @@ dependencies:
     specifier: 1.0.0
     version: 1.0.0
   '@jeecg/online':
-    specifier: 3.7.4-beta
-    version: 3.7.4-beta
+    specifier: link:vendor/online
+    version: link:vendor/online
   '@logicflow/core':
     specifier: ^2.0.10
     version: 2.1.1
@@ -1743,10 +1743,6 @@ packages:
 
   /@jeecg/aiflow@1.0.0:
     resolution: {integrity: sha512-L2+P2ZLq/0qkZG/x5k7Y2Z91l8dqwixx+Ga1BPx1U+9zz13sKYuZH63cr7G9PJtZb3O+PfOuLPgl0aOhnB9hng==}
-    dev: false
-
-  /@jeecg/online@3.7.4-beta:
-    resolution: {integrity: sha512-vzhyUikxmlJwpQFxzMexibCYAW6Vdwu4to6wkuaCAjv3DG4b2TIWGzQE/WpU2FAs8E6jBFUNnKk305SslG7XKA==}
     dev: false
 
   /@jest/console@29.7.0:

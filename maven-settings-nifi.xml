@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+
+  <!-- 显式覆盖常见全局镜像，确保 apache-public 直连不被镜像拦截 -->
+  <mirrors>
+    <mirror>
+      <id>aliyunmaven</id>
+      <name>Aliyun Maven (overridden locally)</name>
+      <url>https://maven.aliyun.com/repository/public</url>
+      <mirrorOf>*,!central,!apache-public</mirrorOf>
+    </mirror>
+    <!-- 强制让 apache-public 直连自身，避免被 “mirrorOf=*” 捕获 -->
+    <mirror>
+      <id>direct-apache-public</id>
+      <name>Direct Apache Public</name>
+      <url>https://repository.apache.org/content/groups/public/</url>
+      <mirrorOf>apache-public</mirrorOf>
+    </mirror>
+  </mirrors>
+
+  <!-- 仅激活直连 Central 与 Apache Public，避免镜像拦截插件仓库 -->
+  <profiles>
+    <profile>
+      <id>direct-repos</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+        <repository>
+          <id>apache-public</id>
+          <url>https://repository.apache.org/content/groups/public/</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+        <pluginRepository>
+          <id>apache-public</id>
+          <url>https://repository.apache.org/content/groups/public/</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+
+  <activeProfiles>
+    <activeProfile>direct-repos</activeProfile>
+  </activeProfiles>
+
+</settings>
+
+

@@ -9,6 +9,8 @@ import org.jeecg.modules.online.cgform.entity.OnlCgformField;
 import org.jeecg.modules.online.cgform.entity.OnlCgformHead;
 import org.jeecg.modules.online.cgform.service.IOnlCgformFieldService;
 import org.jeecg.modules.online.cgform.service.IOnlCgformHeadService;
+import org.jeecg.modules.workflow.entity.OnlCgformWorkflowConfig;
+import org.jeecg.modules.workflow.service.IOnlCgformWorkflowConfigService;
 import org.jeecg.modules.workflow.entity.OnlCgformWorkflowNode;
 import org.jeecg.modules.workflow.mapper.OnlCgformWorkflowNodeMapper;
 import org.jeecg.modules.workflow.model.FormPermissionConfig;
@@ -49,6 +51,9 @@ public class OnlineFormPermissionEngine {
     @Autowired
     private IOnlCgformFieldService onlCgformFieldService;
 
+    @Autowired
+    private IOnlCgformWorkflowConfigService workflowConfigService;
+
     // =============== 核心权限获取方法 ===============
 
     /**
@@ -72,8 +77,19 @@ public class OnlineFormPermissionEngine {
                 return explicitConfig;
             }
 
-            // 2. 使用智能默认策略
-            log.debug("未找到显式权限配置，使用智能默认策略");
+            // 2. 尝试从 ui_schema_json / fieldExtendJson(workflow) 合成
+            FormPermissionConfig fieldCfg = buildFromFieldExtendJson(formId, processDefinitionKey, nodeId);
+            if (fieldCfg != null && (
+                !fieldCfg.getEditableFields().isEmpty() ||
+                !fieldCfg.getReadonlyFields().isEmpty() ||
+                !fieldCfg.getHiddenFields().isEmpty() ||
+                !fieldCfg.getRequiredFields().isEmpty())) {
+                log.debug("使用 ui_schema / fieldExtendJson 合成的权限配置");
+                return fieldCfg;
+            }
+
+            // 3. 使用智能默认策略
+            log.debug("未找到显式/字段扩展配置，使用智能默认策略");
             FormPermissionConfig defaultConfig = defaultStrategy.generateDefaultPermission(formId, nodeId);
             
             log.debug("智能默认权限生成完成：可编辑{}个，只读{}个，隐藏{}个", 
@@ -86,6 +102,39 @@ public class OnlineFormPermissionEngine {
         } catch (Exception e) {
             log.error("获取节点权限配置失败", e);
             return createSafeDefaultConfig();
+        }
+    }
+
+    /**
+     * 聚合所有字段的 fieldExtendJson(workflow) 配置为节点权限
+     */
+    private FormPermissionConfig buildFromFieldExtendJson(String formId, String processDefinitionKey, String nodeId) {
+        try {
+            OnlCgformHead head = onlCgformHeadService.getById(formId);
+            if (head == null) {
+                return null;
+            }
+
+            // 按字段的 fieldExtendJson(workflow) 聚合权限（权威来源）
+            List<OnlCgformField> fields = onlCgformFieldService.list(
+                new LambdaQueryWrapper<OnlCgformField>()
+                    .eq(OnlCgformField::getCgformHeadId, head.getId())
+                    .orderByAsc(OnlCgformField::getOrderNum)
+            );
+
+            FormPermissionConfig aggregated = new FormPermissionConfig();
+            for (OnlCgformField f : fields) {
+                FormPermissionConfig cfg = parseFromFieldExtendJson(f, processDefinitionKey, nodeId);
+                if (cfg == null) continue;
+                if (cfg.getEditableFields() != null) aggregated.getEditableFields().addAll(cfg.getEditableFields());
+                if (cfg.getReadonlyFields() != null) aggregated.getReadonlyFields().addAll(cfg.getReadonlyFields());
+                if (cfg.getHiddenFields() != null) aggregated.getHiddenFields().addAll(cfg.getHiddenFields());
+                if (cfg.getRequiredFields() != null) aggregated.getRequiredFields().addAll(cfg.getRequiredFields());
+            }
+            return aggregated;
+        } catch (Exception e) {
+            log.debug("聚合 fieldExtendJson(workflow) 失败: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -254,6 +303,92 @@ public class OnlineFormPermissionEngine {
             field.put("required", true);
             log.debug("字段 {} 设置为必填", fieldName);
         }
+    }
+
+    // =============== 兼容 fieldExtendJson(workflow) 的快速解析（可选兜底） ===============
+    /**
+     * 从 OnlCgformField.fieldExtendJson 中解析 workflow 节点权限（兼容老的 wf 作为别名）。
+     */
+    @SuppressWarnings("unchecked")
+    public FormPermissionConfig parseFromFieldExtendJson(OnlCgformField field, String processDefinitionKey, String nodeId) {
+        try {
+            String extend = field.getFieldExtendJson();
+            if (oConvertUtils.isEmpty(extend)) {
+                return null;
+            }
+            Map<String, Object> json = (Map<String, Object>) com.alibaba.fastjson.JSON.parse(extend);
+            if (json == null) {
+                return null;
+            }
+            Object wfRoot = json.get("workflow");
+            if (wfRoot == null) {
+                // 兼容旧 key: wf
+                wfRoot = json.get("wf");
+            }
+            if (!(wfRoot instanceof Map)) {
+                return null;
+            }
+            Map<String, Object> wf = (Map<String, Object>) wfRoot;
+
+            // 支持 default / 指定流程Key 两层
+            Map<String, Object> scope = null;
+            if (oConvertUtils.isNotEmpty(processDefinitionKey) && wf.containsKey(processDefinitionKey)) {
+                scope = (Map<String, Object>) wf.get(processDefinitionKey);
+            }
+            if (scope == null && wf.containsKey("default")) {
+                scope = (Map<String, Object>) wf.get("default");
+            }
+            if (scope == null) {
+                // 简化结构：visible/editable/required 直接在 workflow 下
+                scope = wf;
+            }
+
+            FormPermissionConfig cfg = new FormPermissionConfig();
+            cfg.setEditableFields(readNodeArray(scope, "editable", nodeId, field.getDbFieldName()));
+            cfg.setReadonlyFields(readNodeArray(scope, "readonly", nodeId, field.getDbFieldName()));
+            cfg.setHiddenFields(readNodeArray(scope, "hidden", nodeId, field.getDbFieldName()));
+
+            // 简化版 visible：若配置了 visible 列表但未在 visible 中则视为隐藏
+            List<String> visible = readNodeArray(scope, "visible", nodeId, field.getDbFieldName());
+            if (!visible.isEmpty()) {
+                // 非 visible 的字段默认隐藏，当前仅对本字段生效
+                if (!visible.contains(nodeId)) {
+                    cfg.getHiddenFields().add(field.getDbFieldName());
+                }
+            }
+
+            // required: { nodeId: true/false }
+            Object requiredObj = scope.get("required");
+            if (requiredObj instanceof Map) {
+                Object val = ((Map<?, ?>) requiredObj).get(nodeId);
+                if (val instanceof Boolean && (Boolean) val) {
+                    cfg.getRequiredFields().add(field.getDbFieldName());
+                }
+            }
+            return cfg;
+        } catch (Exception e) {
+            log.debug("解析 fieldExtendJson(workflow) 失败: field={}, err={}", field.getDbFieldName(), e.getMessage());
+            return null;
+        }
+    }
+
+    private List<String> readNodeArray(Map<String, Object> scope, String key, String nodeId, String fieldName) {
+        Object val = scope.get(key);
+        if (val instanceof List) {
+            // 简化结构：直接为节点数组（不按字段），此种写法无法定位到单字段，这里忽略
+            return new java.util.ArrayList<>();
+        }
+        if (val instanceof Map) {
+            Object arr = ((Map<?, ?>) val).get(nodeId);
+            if (arr instanceof List) {
+                // 若该字段在该权限列表中则返回
+                List<?> list = (List<?>) arr;
+                if (list.contains(fieldName)) {
+                    return new java.util.ArrayList<>(java.util.Collections.singletonList(fieldName));
+                }
+            }
+        }
+        return new java.util.ArrayList<>();
     }
 
     // =============== 权限验证方法 ===============

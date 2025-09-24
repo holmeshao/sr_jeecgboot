@@ -118,6 +118,17 @@ const workflow: AppRouteModule = {
         realPath: '/workflow/form/:formType/:dataId?',
       },
     },
+    // 融合模式页面（INTEGRATED）
+    {
+      path: 'form/integrated',
+      name: 'IntegratedForm',
+      component: () => import('@/views/workflow/form/IntegratedForm.vue'),
+      meta: {
+        title: '融合表单页',
+        hideMenu: true,
+        hideTab: true,
+      },
+    },
   ],
 };
 

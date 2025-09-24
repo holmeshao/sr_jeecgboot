@@ -37,6 +37,7 @@
               :node-id="currentNodeId"
               :process-instance-id="processInstanceId"
               :field-permissions="currentFieldPermissions"
+              :auto-load-permissions="false"
               :show-actions="false"
               @data-change="handleFormDataChange"
               @submit="handleFormSubmit"
@@ -46,73 +47,24 @@
             <!-- 🎯 智能工作流操作区域 -->
             <div v-if="!loading" class="form-actions-section">
               <a-divider />
-              
-              <!-- 使用JeecgBoot现有的按钮系统 -->
-              <div class="action-buttons">
-                <a-space size="large" wrap>
-                  <!-- 保存草稿按钮 -->
-                  <a-button 
-                    v-if="allowSave"
-                    @click="handleSaveDraft"
-                    :loading="savingDraft"
-                    :disabled="isReadonlyMode"
-                    size="large"
-                  >
-                    <template #icon>
-                      <SaveOutlined />
-                    </template>
-                    保存草稿
-                  </a-button>
-
-                  <!-- 提交按钮 -->
-                  <a-button
-                    v-if="allowSubmit"
-                    type="primary"
-                    @click="handleSubmitForm"
-                    :loading="submitting"
-                    :disabled="isReadonlyMode"
-                    size="large"
-                  >
-                    <template #icon>
-                      <SendOutlined />
-                    </template>
-                    {{ getSubmitButtonText() }}
-                  </a-button>
-
-                  <!-- 启动工作流按钮 -->
-                  <a-button
-                    v-if="allowStartWorkflow"
-                    type="primary"
-                    @click="handleManualStartWorkflow"
-                    :loading="startingWorkflow"
-                    :disabled="isReadonlyMode"
-                    size="large"
-                  >
-                    <template #icon>
-                      <PlayCircleOutlined />
-                    </template>
-                    启动工作流
-                  </a-button>
-
-                  <!-- 工作流操作按钮 -->
-                  <template v-if="hasCurrentTask && currentWorkflowButtons.length > 0">
-                    <a-button
-                      v-for="button in currentWorkflowButtons"
-                      :key="button.id"
-                      :type="button.type"
-                      :loading="button.loading"
-                      :disabled="button.disabled || isReadonlyMode"
-                      @click="handleWorkflowAction(button.action, button)"
-                      size="large"
-                    >
-                      <template #icon v-if="button.icon">
-                        <component :is="button.icon" />
-                      </template>
-                      {{ button.text }}
-                    </a-button>
-                  </template>
-                </a-space>
-              </div>
+              <a-space size="large" wrap>
+                <a-input-textarea v-model:value="processComment" :rows="2" placeholder="处理意见（可选）" style="width: 360px" />
+                <SmartButtonGroup
+                  :formId="formType"
+                  :dataId="dataId"
+                  :taskId="currentTaskId || undefined"
+                  @save="handleSaveDraft"
+                  @submit="handleSubmitForm"
+                  @approve="handleApprove"
+                  @reject="handleReject"
+                  @claim="handleClaim"
+                  @unclaim="handleUnclaim"
+                  @transfer="handleTransfer"
+                />
+                <a-popconfirm v-if="currentTaskId" title="添加处理意见？" ok-text="确定" cancel-text="取消" @confirm="handleAddComment">
+                  <a-button type="dashed">添加意见</a-button>
+                </a-popconfirm>
+              </a-space>
             </div>
             
             <!-- 只读模式提示 -->
@@ -158,6 +110,9 @@
               <PrinterOutlined />
               打印表单
             </a-button>
+            <a-button block type="dashed" @click="togglePermissionDebug" :disabled="!formType">
+              字段权限调试
+            </a-button>
           </a-space>
         </a-card>
         
@@ -172,6 +127,9 @@
             :process-instance-id="processInstanceId" 
             :compact="true" 
           />
+          <div style="margin-top: 12px; text-align: center;">
+            <a-button type="link" @click="viewDiagram">查看流程图</a-button>
+          </div>
         </a-card>
         
         <!-- 表单基本信息 -->
@@ -246,6 +204,30 @@
         :form-config="formConfig"
       />
     </a-modal>
+
+    <!-- 流程图弹窗 -->
+    <a-modal
+      v-model:open="diagramVisible"
+      title="流程图"
+      width="80%"
+      :footer="null"
+      destroy-on-close
+    >
+      <div v-if="processInstanceId" style="text-align:center;">
+        <img :src="`/workflow/instance/${processInstanceId}/diagram.png`" alt="流程图" style="max-width:100%;" />
+      </div>
+    </a-modal>
+
+    <!-- 字段权限调试弹窗（仅开发辅助） -->
+    <a-modal
+      v-model:open="permDebugVisible"
+      title="字段权限调试"
+      width="720px"
+      :footer="null"
+      destroy-on-close
+    >
+      <a-table :data-source="permDebugRows" :columns="permDebugCols" rowKey="field" size="small" :pagination="false" />
+    </a-modal>
   </div>
 </template>
 
@@ -259,10 +241,7 @@ import {
   HistoryOutlined, 
   DiffOutlined, 
   ExportOutlined, 
-  PrinterOutlined,
-  SaveOutlined,
-  SendOutlined,
-  PlayCircleOutlined
+  PrinterOutlined
 } from '@ant-design/icons-vue';
 import WorkflowOnlineForm from '@/components/jeecg/OnlineForm/WorkflowOnlineForm.vue';
 // 使用JeecgBoot现有的按钮系统，通过SmartButtonGroup组件处理工作流按钮
@@ -271,55 +250,50 @@ import ProcessHistory from '../components/ProcessHistory.vue';
 import VersionTimeline from '../components/VersionTimeline.vue';
 import VersionCompare from '../components/VersionCompare.vue';
 // 使用JeecgBoot现有的Tag组件，无需专门的状态和优先级标签组件
-import { generateWorkflowButtons } from '/@/utils/workflow/buttonManager';
-import type { WorkflowButton } from '/@/utils/workflow/buttonManager';
+// 已统一依赖 SmartButtonGroup 渲染，不再本地生成
 import { useUserStore } from '/@/store/modules/user';
 import { formatToDateTime } from '/@/utils/dateUtil';
 // 🎯 导入基于JeecgBoot API的方法
 import { defHttp } from '/@/utils/http/axios';
+import { workflowConfigApi, workflowTaskApi, workflowRenderApi } from '/@/api/workflow';
 
 // API方法定义
 const submitForm = (tableName: string, dataId: string, formData: any) => {
   return defHttp.post({
-    url: '/workflow/form/submit',
+    url: '/workflow/onlineForm/form/submit',
     data: { tableName, dataId, formData }
   });
 };
 
 const saveDraft = (tableName: string, dataId: string, formData: any) => {
   return defHttp.post({
-    url: '/workflow/form/save-draft', 
+    url: '/workflow/onlineForm/form/save-draft', 
     data: { tableName, dataId, formData }
   });
 };
 
 const getFormBasicInfo = (tableName: string, dataId: string) => {
   return defHttp.get({
-    url: '/workflow/form/basic-info',
+    url: '/workflow/onlineForm/form/basic-info',
     params: { tableName, dataId }
   });
 };
 
 const manualStartWorkflow = (tableName: string, dataId: string) => {
   return defHttp.post({
-    url: '/workflow/form/manual-start',
+    url: '/workflow/onlineForm/form/manual-start',
     data: { tableName, dataId }
   });
 };
 
 const getProcessInfo = (processInstanceId: string) => {
   return defHttp.get({
-    url: '/workflow/process/info',
+    url: '/workflow/render/process/info',
     params: { processInstanceId }
   });
 };
 
-const completeTask = (taskId: string, data: any) => {
-  return defHttp.post({
-    url: '/workflow/task/complete',
-    data: { taskId, ...data }
-  });
-};
+const completeTask = (taskId: string, data: any) => workflowTaskApi.complete(taskId, data);
 
 // 定义组件名称
 defineOptions({ name: 'UniversalFormPage' });
@@ -355,14 +329,9 @@ const needComment = ref(false);
 const processComment = ref('');
 const versionControlEnabled = ref(false);
 
-// 🎯 新的工作流按钮系统状态
-const currentWorkflowButtons = ref<WorkflowButton[]>([]);
-const allowSave = ref(true);
-const allowSubmit = ref(true);
-const allowStartWorkflow = ref(false);
-const showBaseActions = ref(true);
+// 统一 SmartButtonGroup 渲染，不再维护本地按钮状态
 
-// 工作流启动模式相关状态
+// 工作流启动模式相关状态（保留以便未来使用）
 const canStartWorkflowFlag = ref(false);
 
 // 加载状态
@@ -375,6 +344,45 @@ const historyModalVisible = ref(false);
 const versionModalVisible = ref(false);
 const compareModalVisible = ref(false);
 const compareVersions = ref<any[]>([]);
+const diagramVisible = ref(false);
+const permDebugVisible = ref(false);
+const permDebugRows = ref<any[]>([]);
+const permDebugCols = [
+  { title: '字段', dataIndex: 'field', key: 'field', width: 160 },
+  { title: '标题', dataIndex: 'title', key: 'title', width: 180 },
+  { title: '可编辑', dataIndex: 'editable', key: 'editable' },
+  { title: '只读', dataIndex: 'readonly', key: 'readonly' },
+  { title: '隐藏', dataIndex: 'hidden', key: 'hidden' },
+  { title: '必填', dataIndex: 'required', key: 'required' },
+];
+
+// === 流程变量：节点白名单配置（从表单/工作流配置解析）
+const variableWhitelistByNode = ref<Record<string, string[]>>({});
+
+function parseJsonSafe(input: any): any {
+  if (!input) return null;
+  if (typeof input === 'object') return input;
+  if (typeof input === 'string') {
+    try { return JSON.parse(input); } catch { return null; }
+  }
+  return null;
+}
+
+function extractVariableWhitelist(config: any): Record<string, string[]> {
+  try {
+    const head = config?.result?.head || config?.head || null;
+    if (!head) return {};
+    // 兼容多处放置：ui_schema_json / extendJson / fieldExtendJson
+    const sources: any[] = [head.ui_schema_json, head.extendJson, head.fieldExtendJson]
+      .map(parseJsonSafe)
+      .filter(Boolean);
+    for (const src of sources) {
+      const vars = src?.workflow?.variables;
+      if (vars && typeof vars === 'object') return vars;
+    }
+  } catch {}
+  return {};
+}
 
 // 计算属性
 const isReadonlyMode = computed(() => {
@@ -385,16 +393,7 @@ const isCompleted = computed(() => {
   return currentStatus.value === 'COMPLETED' || currentStatus.value === 'FINISHED';
 });
 
-// 🎯 新的计算属性 - 支持智能按钮系统
-const getSubmitButtonText = () => {
-  if (hasCurrentTask.value) {
-    return '完成任务';
-  } else if (allowStartWorkflow.value) {
-    return '提交并启动工作流';
-  } else {
-    return '提交';
-  }
-};
+// 已改为统一 SmartButtonGroup，无需本地按钮文案计算
 
 // 初始化页面
 onMounted(async () => {
@@ -477,6 +476,15 @@ async function initViewMode() {
     const basicInfoData = await getFormBasicInfo(formType.value, dataId.value);
     Object.assign(basicInfo, basicInfoData);
     
+    // 根据配置 ui_mode 选择渲染模式：SPLIT/INTEGRATED
+    let uiMode: string | null = null;
+    try {
+      if (basicInfoData.formId && basicInfoData.processDefinitionKey) {
+        const modeRes: any = await workflowConfigApi.getUiMode({ cgformHeadId: basicInfoData.formId, processDefinitionKey: basicInfoData.processDefinitionKey });
+        uiMode = modeRes?.uiMode || null;
+      }
+    } catch {}
+
     // 设置显示模式
     if (currentTaskId.value) {
       // 有任务ID，表示是工作流任务模式
@@ -495,6 +503,23 @@ async function initViewMode() {
       // 普通查看模式
       displayMode.value = { mode: 'VIEW' };
       hasCurrentTask.value = false;
+    }
+
+    // 若 ui_mode=INTEGRATED，跳转融合页
+    if (uiMode === 'INTEGRATED') {
+      await router.replace({
+        path: '/workflow/form/integrated',
+        query: {
+          formId: basicInfoData.formId,
+          tableName: formType.value,
+          dataId: dataId.value,
+          processDefinitionKey: basicInfoData.processDefinitionKey || '',
+          processInstanceId: basicInfoData.processInstanceId || '',
+          taskId: currentTaskId.value || '',
+          nodeId: currentNodeId.value || ''
+        }
+      });
+      return;
     }
     
     // 设置状态信息
@@ -533,7 +558,12 @@ async function loadProcessInfo() {
  */
 function handleFormLoaded(config: any) {
   console.log('表单加载完成:', config);
-  // 可以在这里处理表单加载完成后的逻辑
+  // 解析节点变量白名单
+  try {
+    variableWhitelistByNode.value = extractVariableWhitelist(config) || {};
+  } catch {
+    variableWhitelistByNode.value = {};
+  }
 }
 
 /**
@@ -543,13 +573,16 @@ async function loadTaskInfo() {
   if (!currentTaskId.value) return;
   
   try {
-    // 这里应该调用获取任务信息的API
-    // const taskInfo = await getTaskInfo(currentTaskId.value);
-    // 暂时模拟
-    needComment.value = true; // 大部分任务需要处理意见
-    
-    // 🎯 生成工作流按钮
-    await loadWorkflowButtons();
+    // 获取任务详情以判定当前节点ID等信息
+    const taskInfo: any = await (workflowTaskApi as any).getDetail(currentTaskId.value);
+    if (taskInfo && taskInfo.result) {
+      const t = taskInfo.result;
+      currentNodeId.value = t.taskDefinitionKey || '';
+      processInstanceId.value = t.processInstanceId || processInstanceId.value;
+    }
+    needComment.value = true;
+    // 统一依赖 SmartButtonGroup，无需本地按钮生成
+    await loadNodePermissions();
     
   } catch (error) {
     console.error('加载任务信息失败:', error);
@@ -557,61 +590,31 @@ async function loadTaskInfo() {
 }
 
 /**
- * 🎯 加载工作流按钮
+ * 加载当前节点的字段权限（SPLIT模式使用）
  */
-async function loadWorkflowButtons() {
+async function loadNodePermissions() {
   try {
-    const buttons = await generateWorkflowButtons(
-      currentTaskId.value,
-      processInstanceId.value,
-      formType.value
-    );
-    currentWorkflowButtons.value = buttons;
-    
-    // 根据工作流状态调整基础按钮显示
-    updateBaseActionsVisibility();
-    
-  } catch (error) {
-    console.error('加载工作流按钮失败:', error);
-    currentWorkflowButtons.value = [];
+    const formId = (basicInfo as any).formId;
+    const processDefinitionKey = (basicInfo as any).processDefinitionKey || '';
+    if (!formId || !currentNodeId.value || !processDefinitionKey) return;
+    const data: any = await workflowRenderApi.getNodeRender({
+      formId,
+      processDefinitionKey,
+      nodeId: currentNodeId.value,
+      processInstanceId: processInstanceId.value,
+    });
+    currentFieldPermissions.value = data?.permissions || {};
+  } catch (e) {
+    currentFieldPermissions.value = {} as any;
   }
 }
+
+// 按钮由 SmartButtonGroup 统一加载
 
 /**
  * 🎯 更新基础操作按钮可见性
  */
-function updateBaseActionsVisibility() {
-  const mode = displayMode.value.mode;
-  
-  // 根据模式设置基础按钮
-  switch (mode) {
-    case 'CREATE':
-      allowSave.value = true;
-      allowSubmit.value = true;
-      allowStartWorkflow.value = canStartWorkflowFlag.value;
-      showBaseActions.value = true;
-      break;
-    case 'EDIT':
-      allowSave.value = true;
-      allowSubmit.value = true;
-      allowStartWorkflow.value = false;
-      showBaseActions.value = true;
-      break;
-    case 'OPERATE':
-      allowSave.value = false;
-      allowSubmit.value = false;
-      allowStartWorkflow.value = false;
-      showBaseActions.value = false; // 工作流操作模式只显示工作流按钮
-      break;
-    case 'VIEW':
-    case 'TRACK':
-      allowSave.value = false;
-      allowSubmit.value = false;
-      allowStartWorkflow.value = false;
-      showBaseActions.value = false;
-      break;
-  }
-}
+function updateBaseActionsVisibility() {}
 
 /**
  * 处理表单数据变化
@@ -633,12 +636,12 @@ async function handleSubmitForm() {
     if (result.success) {
       message.success(result.result.message || '提交成功');
       
-      // 更新数据ID（如果是新建）
+      // 更新数据ID（如果是新建）并修正路径拼接
       if (!dataId.value && result.result.dataId) {
         dataId.value = result.result.dataId;
-        // 更新路由，避免重复提交
         await router.replace({
-          path: route.path.replace('/', `/${dataId.value}`),
+          name: 'UniversalFormPage',
+          params: { formType: formType.value, dataId: dataId.value },
           query: route.query
         });
       }
@@ -675,12 +678,12 @@ async function handleSaveDraft() {
     if (result.success) {
       message.success(result.result.message || '草稿保存成功');
       
-      // 更新数据ID（如果是新建）
+      // 更新数据ID（如果是新建）并修正路径拼接
       if (!dataId.value && result.result.dataId) {
         dataId.value = result.result.dataId;
-        // 更新路由
         await router.replace({
-          path: route.path.replace('/', `/${dataId.value}`),
+          name: 'UniversalFormPage',
+          params: { formType: formType.value, dataId: dataId.value },
           query: route.query
         });
       }
@@ -704,6 +707,52 @@ async function handleSaveDraft() {
     message.error('保存草稿失败，请重试');
   } finally {
     savingDraft.value = false;
+  }
+}
+
+// === 审批动作统一入口：确保内置变量 + 可扩展变量合并 ===
+async function handleApprove() {
+  if (!currentTaskId.value) return;
+  const payload: any = { variables: { approve_result: 'pass' }, comment: processComment.value };
+  await completeWithExtVars(payload);
+}
+
+async function handleReject() {
+  if (!currentTaskId.value) return;
+  const payload: any = { variables: { approve_result: 'reject' }, comment: processComment.value || '驳回' };
+  await completeWithExtVars(payload);
+}
+
+async function completeWithExtVars(base: any) {
+  try {
+    loading.value = true;
+    const nodeKey = currentNodeId.value;
+    const white = variableWhitelistByNode.value || {};
+    const allowKeys: string[] = Array.isArray(white[nodeKey]) ? white[nodeKey] : [];
+    const merged: any = { ...base };
+    if (allowKeys.length && typeof (window as any).WF_collectVars === 'function') {
+      try {
+        const ctx = { nodeKey, processDefinitionKey: (basicInfo as any).processDefinitionKey || '', user: userStore.userInfo, comment: processComment.value };
+        const ext = await (window as any).WF_collectVars({ ...(formData as any) }, ctx);
+        if (ext && typeof ext === 'object') {
+          const picked: Record<string, any> = {};
+          allowKeys.forEach(k => { if (k in ext) picked[k] = ext[k]; });
+          merged.variables = { ...(merged.variables || {}), ...picked };
+        }
+      } catch {}
+    }
+    // 若白名单包含通用意见变量且未由扩展提供，则自动补充
+    if (allowKeys.includes('approve_opinion')) {
+      merged.variables = { ...(merged.variables || {}), approve_opinion: processComment.value || '' };
+    }
+    await completeTask(currentTaskId.value, merged);
+    message.success('提交成功');
+    await initializePage();
+  } catch (e) {
+    console.error(e);
+    message.error('提交失败，请重试');
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -736,21 +785,7 @@ async function handleManualStartWorkflow() {
 /**
  * 🎯 处理工作流按钮动作
  */
-async function handleWorkflowAction(button: WorkflowButton, comment?: string) {
-  try {
-    console.log(`执行工作流动作: ${button.code}`, { comment });
-    
-    // 重新加载按钮状态（因为按钮动作可能改变任务状态）
-    await loadWorkflowButtons();
-    
-    // 刷新页面数据
-    await initializePage();
-    
-  } catch (error) {
-    console.error(`工作流动作 ${button.code} 执行失败:`, error);
-    message.error(`${button.label}失败，请重试`);
-  }
-}
+// 工作流动作统一由 SmartButtonGroup 触发并回调
 
 /**
  * 处理表单提交（兼容旧方法）
@@ -760,11 +795,26 @@ async function handleFormSubmit(submitData: any) {
     loading.value = true;
     
     if (hasCurrentTask.value && currentTaskId.value) {
-      // 工作流任务提交
-      await completeTask(currentTaskId.value, {
-        ...submitData,
-        comment: processComment.value
-      });
+      // 工作流任务提交：合并扩展变量
+      const merged = { ...submitData } as any;
+      const nodeKey = currentNodeId.value;
+      const white = variableWhitelistByNode.value || {};
+      const allowKeys: string[] = Array.isArray(white[nodeKey]) ? white[nodeKey] : [];
+      if (allowKeys.length && typeof (window as any).WF_collectVars === 'function') {
+        try {
+          const ctx = { nodeKey, processDefinitionKey: (basicInfo as any).processDefinitionKey || '', user: userStore.userInfo, comment: processComment.value };
+          const ext = await (window as any).WF_collectVars({ ...(formData as any) }, ctx);
+          if (ext && typeof ext === 'object') {
+            const picked: Record<string, any> = {};
+            allowKeys.forEach(k => { if (k in ext) picked[k] = ext[k]; });
+            merged.variables = { ...(merged.variables || {}), ...picked };
+          }
+        } catch (e) { /* 忽略扩展变量错误，继续提交流程 */ }
+      }
+      if (allowKeys.includes('approve_opinion')) {
+        merged.variables = { ...(merged.variables || {}), approve_opinion: processComment.value || '' };
+      }
+      await completeTask(currentTaskId.value, { ...merged, comment: processComment.value });
       
       message.success('提交成功');
       
@@ -836,12 +886,86 @@ async function exportForm() {
     const fileName = `工作流表单_${route.params.dataId}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
     
     // 调用导出API
-    await handleExportXls(fileName, '/workflow/form/export', exportParams);
+    await handleExportXls(fileName, '/workflow/onlineForm/form/export', exportParams);
     
     message.success('导出成功');
   } catch (error) {
     console.error('导出失败:', error);
     message.error('导出失败，请重试');
+  }
+}
+
+function viewDiagram() {
+  diagramVisible.value = true;
+}
+
+async function togglePermissionDebug() {
+  try {
+    if (!formType.value) return;
+    // 需要 processDefinitionKey 才能精确合成；若无，传空则走默认策略
+    const pdKey = (basicInfo as any).processDefinitionKey || '';
+    const nodeId = currentNodeId.value || '';
+    const data: any = await defHttp.get({
+      url: '/workflow/render/node/permissionDebug',
+      params: { formId: (basicInfo as any).formId || '', processDefinitionKey: pdKey, nodeId },
+    });
+    permDebugRows.value = Array.isArray(data) ? data : (data?.result || []);
+    permDebugVisible.value = true;
+  } catch (e) {
+    permDebugRows.value = [];
+    permDebugVisible.value = true;
+  }
+}
+
+async function handleClaim() {
+  if (!currentTaskId.value) return;
+  try {
+    await defHttp.post({ url: '/workflow/task/claim', data: { taskId: currentTaskId.value } });
+    message.success('已认领');
+    await initializePage();
+  } catch (e) {
+    message.error('认领失败');
+  }
+}
+
+async function handleUnclaim() {
+  if (!currentTaskId.value) return;
+  try {
+    await defHttp.post({ url: '/workflow/task/unclaim', data: { taskId: currentTaskId.value } });
+    message.success('已释放');
+    await initializePage();
+  } catch (e) {
+    message.error('释放失败');
+  }
+}
+
+async function handleAddComment() {
+  if (!currentTaskId.value) return;
+  if (!processComment.value) {
+    message.warning('请输入处理意见');
+    return;
+  }
+  try {
+    await defHttp.post({ url: `/workflow/task/${currentTaskId.value}/comment`, data: { message: processComment.value } });
+    message.success('已添加意见');
+  } catch (e) {
+    message.error('添加意见失败');
+  }
+}
+
+async function handleTransfer(payload: any) {
+  try {
+    if (!currentTaskId.value) return;
+    const assignee = payload?.assignee;
+    if (!assignee) {
+      message.warning('缺少接收人（assignee）参数');
+      return;
+    }
+    await workflowTaskApi.transfer(currentTaskId.value, assignee);
+    message.success('已转办');
+    await initializePage();
+  } catch (e) {
+    message.error('转办失败');
   }
 }
 

@@ -9,7 +9,7 @@
             </a-avatar>
           </template>
 
-          <div class="timeline-content">
+          <div class="timeline-content" @click="handleSelect(item)" :class="{ clickable: true }">
             <div class="timeline-header">
               <h4 :class="{ compact: compact }">{{ item.taskName || item.activityName }}</h4>
               <span class="timeline-time">{{ formatTime(item.endTime || item.createTime) }}</span>
@@ -62,6 +62,9 @@
 
 <script setup lang="ts">
   import { ref, onMounted, watch } from 'vue';
+  const emit = defineEmits<{
+    (e: 'select', payload: { nodeId: string; taskId: string }): void
+  }>();
   import { Empty, message } from 'ant-design-vue';
   import {
     CheckCircleOutlined,
@@ -109,25 +112,33 @@
     loading.value = true;
 
     try {
-      const [processHistory, taskHistory] = await Promise.all([
-        // 使用JeecgBoot现有的API获取流程历史
-        defHttp.get({ url: `/workflow/process/history/${props.processInstanceId}` }),
-        defHttp.get({ url: `/workflow/task/history/${props.processInstanceId}` }),
-      ]);
-
-      // 合并并排序历史数据
-      const allHistory = [...processHistory, ...taskHistory];
-      timelineData.value = allHistory
-        .sort((a, b) => new Date(a.createTime).getTime() - new Date(b.createTime).getTime())
-        .map((item) => ({
-          ...item,
-          status: getItemStatus(item),
+      const renderHistory: any = await defHttp.get({ url: `/workflow/render/history`, params: { processInstanceId: props.processInstanceId, pageNo: 1, pageSize: 100 } });
+      const items = renderHistory?.items || renderHistory || [];
+      timelineData.value = items
+        .sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0))
+        .map((it: any) => ({
+          taskName: it.nodeName || it.nodeId,
+          createTime: it.timestamp,
+          endTime: it.timestamp,
+          assignee: it.operator,
+          duration: it.durationMs,
+          status: it.timestamp ? 'completed' : 'waiting',
+          comment: undefined,
+          attachments: [],
+          nodeId: it.nodeId,
+          taskId: it.id,
         }));
     } catch (error) {
       console.error('加载流程历史失败:', error);
       message.error('加载流程历史失败');
     } finally {
       loading.value = false;
+    }
+  }
+
+  function handleSelect(item: any) {
+    if (item && item.nodeId && item.taskId) {
+      emit('select', { nodeId: item.nodeId, taskId: item.taskId });
     }
   }
 
@@ -253,6 +264,7 @@
 <style lang="less" scoped>
   .process-timeline {
     .timeline-content {
+      &.clickable { cursor: pointer; }
       .timeline-header {
         display: flex;
         justify-content: space-between;

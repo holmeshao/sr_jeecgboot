@@ -18,8 +18,13 @@ nifi:
     # 是否异步通知
     async: true
 
+# 劳务外部平台接口配置
+
+
 # Debezium 集群配置
 debezium:
+  # 是否启用 Debezium 功能（总开关）
+  enabled: false
   cluster:
     # 是否启用集群模式
     enabled: true
@@ -151,3 +156,32 @@ dataingest:
     failure-rate-threshold: 5
     # 延迟告警阈值（秒）
     delay-threshold: 600
+
+projectworker:
+  yichangApi:
+    base: https://zhcjsmz.sanxiacloud.com
+    personPath: /labor/externalCall/person
+    enablePhotoEnrich: false
+  d6cApi:
+    gateway: https://d6cnext.haolink.cn/
+    method:
+      company: ProjectCorp.Upload
+      team: ProjectTeam.Upload
+      personBasic: ProjectWorker.Upload
+      person: ProjectWorkerEntryExit.Upload
+  projectConfig:
+    # 外部 JSON 路径。生产建议使用环境变量或容器挂载路径
+    # 支持前缀: classpath:/ 与 file:/
+    # 示例(生产环境设置环境变量)：PROJECTWORKER_PROJECTS_PATH=file:/etc/jeecg/dataingest/projectworker/project-projects.json
+    jsonPath: ${PROJECTWORKER_PROJECTS_PATH:classpath:projectworker/project-projects.json}
+    # Nacos 集成：开启后将从 Nacos 拉取并热更新项目清单（JSON 数组）
+    nacos:
+      enabled: false
+      # 仅需 dataId 和 group，其它连接参数沿用 spring.cloud.nacos.config.*
+      dataId: projectworker-projects.json
+      group: ${NACOS_GROUP:DEFAULT_GROUP}
+      timeoutMs: 3000  defaults:
+    defaultBase64Image: ""
+    corpTypeMapping: {}
+    corpCodeMapping: {}
+    workTypeRules: []    

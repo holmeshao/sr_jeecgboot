@@ -6,6 +6,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
+import org.flowable.engine.repository.ProcessDefinition;
+import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.engine.repository.ProcessDefinition;
@@ -16,11 +22,15 @@ import org.jeecg.common.aspect.annotation.AutoLog;
 import org.jeecg.common.util.oConvertUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 
 /**
  * 工作流程实例管理Controller
@@ -42,6 +52,9 @@ public class WorkflowInstanceController {
     
     @Autowired
     private HistoryService historyService;
+
+    @Autowired(required = false)
+    private ProcessEngineConfigurationImpl processEngineConfiguration;
 
     /**
      * 获取流程实例列表
@@ -234,21 +247,71 @@ public class WorkflowInstanceController {
     }
 
     /**
-     * 获取流程图（带高亮）
+     * 获取流程图PNG（尽量高亮当前活动节点；已完成流程仅显示图）
      */
-    @AutoLog(value = "获取流程图")
-    @Operation(summary = "获取流程图", description = "获取流程图")
-    @GetMapping("/{id}/diagram")
-    public Result<String> getInstanceDiagram(@PathVariable String id) {
+    @AutoLog(value = "获取流程图PNG")
+    @Operation(summary = "获取流程图PNG", description = "按流程实例生成流程图，包含当前活动节点高亮")
+    @GetMapping(value = "/{id}/diagram.png", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> getInstanceDiagramPng(@PathVariable String id) {
         try {
-            // 这里返回流程图的URL或Base64数据
-            // 具体实现需要根据需求来决定是生成图片还是返回坐标信息给前端绘制
-            String diagramData = "流程图数据，待实现具体的图形生成逻辑";
-            
-            return Result.OK(diagramData);
+            // 解析流程定义
+            String processDefinitionId = null;
+            List<String> activeIds = java.util.Collections.emptyList();
+
+            ProcessInstance running = runtimeService.createProcessInstanceQuery()
+                .processInstanceId(id)
+                .singleResult();
+            if (running != null) {
+                processDefinitionId = running.getProcessDefinitionId();
+                try {
+                    activeIds = runtimeService.getActiveActivityIds(id);
+                } catch (Exception ignore) {}
+            } else {
+                HistoricProcessInstance hp = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(id)
+                    .singleResult();
+                if (hp != null) {
+                    processDefinitionId = hp.getProcessDefinitionId();
+                }
+            }
+
+            if (processDefinitionId == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            BpmnModel model = repositoryService.getBpmnModel(processDefinitionId);
+            if (model == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            // 使用流程图生成器
+            InputStream in;
+            if (processEngineConfiguration != null && processEngineConfiguration.getProcessDiagramGenerator() != null) {
+                // 字体尽量使用常见中文字体名，避免方框；无法加载时由引擎兜底
+                String font = "宋体";
+                in = processEngineConfiguration.getProcessDiagramGenerator()
+                    .generateDiagram(model, "png", activeIds, java.util.Collections.emptyList(), font, font, font, null, 1.0, false);
+            } else {
+                // 退化：尝试读取部署时的图资源
+                ProcessDefinition def = repositoryService.getProcessDefinition(processDefinitionId);
+                String diagramRes = def != null ? def.getDiagramResourceName() : null;
+                if (diagramRes == null) {
+                    return ResponseEntity.notFound().build();
+                }
+                in = repositoryService.getResourceAsStream(def.getDeploymentId(), diagramRes);
+            }
+
+            try (InputStream input = in; ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[4096];
+                int len;
+                while ((len = input.read(buf)) != -1) {
+                    baos.write(buf, 0, len);
+                }
+                return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(baos.toByteArray());
+            }
         } catch (Exception e) {
-            log.error("获取流程图失败", e);
-            return Result.error("获取流程图失败：" + e.getMessage());
+            log.error("生成流程图失败", e);
+            return ResponseEntity.status(500).build();
         }
     }
 

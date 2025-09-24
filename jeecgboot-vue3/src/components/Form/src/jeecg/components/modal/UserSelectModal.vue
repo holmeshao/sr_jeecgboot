@@ -24,7 +24,9 @@
             v-bind="getBindValue"
             :useSearchForm="true"
             :formConfig="formConfig"
-            :api="getUserList"
+            :api="getUserListAll"
+            :rowKey="'id'"
+            :immediate="true"
             :searchInfo="searchInfo"
             :rowSelection="rowSelection"
             :indexColumnProps="indexColumnProps"
@@ -56,7 +58,7 @@
 <script lang="ts">
   import { defineComponent, unref, ref, watch } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
-  import { getUserList } from '/@/api/common/api';
+  import { getUserListAll } from '/@/api/common/api';
   import { createAsyncComponent } from '/@/utils/factory/createAsyncComponent';
   import { useSelectBiz } from '/@/components/Form/src/jeecg/hooks/useSelectBiz';
   import { useAttrs } from '/@/hooks/core/useAttrs';
@@ -118,7 +120,7 @@
       };
       const getBindValue = Object.assign({}, unref(props), unref(attrs), config);
       const [{ rowSelection, visibleChange, selectValues, indexColumnProps, getSelectResult, handleDeleteSelected, selectRows }] = useSelectBiz(
-        getUserList,
+        getUserListAll,
         getBindValue,
         emit
       );
@@ -287,7 +289,8 @@
         indexColumnProps,
         visibleChange,
         getBindValue,
-        getUserList,
+        // 供模板 <BasicTable :api="getUserListAll"> 使用
+        getUserListAll,
         formConfig,
         columns,
         rowSelection,

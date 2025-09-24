@@ -3,7 +3,9 @@ package org.jeecg.modules.workflow.controller;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.shiro.authz.annotation.RequiresPermissions;
 import org.flowable.engine.HistoryService;
+import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
@@ -40,17 +42,22 @@ public class WorkflowTaskController {
     @Autowired
     private HistoryService historyService;
 
+    @Autowired(required = false)
+    private RuntimeService runtimeService;
+
     /**
      * 获取我的待办任务
      */
     @AutoLog(value = "获取我的待办任务")
     @Operation(summary = "获取我的待办任务", description = "获取我的待办任务")
     @GetMapping("/my")
+    @RequiresPermissions("workflow:task:my")
     public Result<Map<String, Object>> getMyTasks(
             @RequestParam(defaultValue = "1") Integer pageNo,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String processDefinitionKey,
             @RequestParam(required = false) String taskName,
+            @RequestParam(required = false) String processInstanceId,
             HttpServletRequest request) {
         
         try {
@@ -69,6 +76,9 @@ public class WorkflowTaskController {
             }
             if (oConvertUtils.isNotEmpty(taskName)) {
                 query.taskNameLike("%" + taskName + "%");
+            }
+            if (oConvertUtils.isNotEmpty(processInstanceId)) {
+                query.processInstanceId(processInstanceId);
             }
             
             // 按创建时间倒序
@@ -97,11 +107,79 @@ public class WorkflowTaskController {
     }
 
     /**
+     * 认领任务（别名）
+     */
+    @AutoLog(value = "认领任务")
+    @Operation(summary = "认领任务", description = "认领任务")
+    @PostMapping("/claim")
+    @RequiresPermissions("workflow:task:claim")
+    public Result<String> claimTask(@RequestBody Map<String, Object> params, HttpServletRequest request) {
+        try {
+            String username = JwtUtil.getUserNameByToken(request);
+            if (oConvertUtils.isEmpty(username)) {
+                return Result.error("用户未登录");
+            }
+            String taskId = (String) params.get("taskId");
+            if (oConvertUtils.isEmpty(taskId)) {
+                return Result.error("taskId不能为空");
+            }
+            Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+            if (task == null) {
+                return Result.error("任务不存在");
+            }
+            if (oConvertUtils.isEmpty(task.getAssignee())) {
+                taskService.claim(taskId, username);
+                return Result.OK("任务认领成功");
+            } else if (username.equals(task.getAssignee())) {
+                return Result.OK("已认领");
+            } else {
+                return Result.error("任务已被其他人认领");
+            }
+        } catch (Exception e) {
+            log.error("认领任务失败", e);
+            return Result.error("认领任务失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 释放任务（别名）
+     */
+    @AutoLog(value = "释放任务")
+    @Operation(summary = "释放任务", description = "释放任务")
+    @PostMapping("/unclaim")
+    @RequiresPermissions("workflow:task:unclaim")
+    public Result<String> unclaimTask(@RequestBody Map<String, Object> params, HttpServletRequest request) {
+        try {
+            String username = JwtUtil.getUserNameByToken(request);
+            if (oConvertUtils.isEmpty(username)) {
+                return Result.error("用户未登录");
+            }
+            String taskId = (String) params.get("taskId");
+            if (oConvertUtils.isEmpty(taskId)) {
+                return Result.error("taskId不能为空");
+            }
+            Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+            if (task == null) {
+                return Result.error("任务不存在");
+            }
+            if (!username.equals(task.getAssignee())) {
+                return Result.error("仅任务认领人可释放");
+            }
+            taskService.unclaim(taskId);
+            return Result.OK("任务释放成功");
+        } catch (Exception e) {
+            log.error("释放任务失败", e);
+            return Result.error("释放任务失败：" + e.getMessage());
+        }
+    }
+
+    /**
      * 获取任务列表（管理员使用）
      */
     @AutoLog(value = "获取任务列表")
     @Operation(summary = "获取任务列表", description = "获取任务列表")
     @GetMapping("/list")
+    @RequiresPermissions("workflow:task:list")
     public Result<Map<String, Object>> getTaskList(
             @RequestParam(defaultValue = "1") Integer pageNo,
             @RequestParam(defaultValue = "10") Integer pageSize,
@@ -154,6 +232,7 @@ public class WorkflowTaskController {
     @AutoLog(value = "获取任务详情")
     @Operation(summary = "获取任务详情", description = "获取任务详情")
     @GetMapping("/{id}")
+    @RequiresPermissions("workflow:task:view")
     public Result<Map<String, Object>> getTaskDetail(@PathVariable String id) {
         try {
             Task task = taskService.createTaskQuery().taskId(id).singleResult();
@@ -180,6 +259,7 @@ public class WorkflowTaskController {
     @AutoLog(value = "完成任务")
     @Operation(summary = "完成任务", description = "完成任务")
     @PutMapping("/{id}/complete")
+    @RequiresPermissions("workflow:task:complete")
     public Result<String> completeTask(
             @PathVariable String id,
             @RequestBody Map<String, Object> params,
@@ -204,10 +284,26 @@ public class WorkflowTaskController {
             @SuppressWarnings("unchecked")
             Map<String, Object> variables = (Map<String, Object>) params.get("variables");
             String comment = (String) params.get("comment");
+            Object snapshotObj = params.get("snapshot");
             
             // 添加审批意见
             if (oConvertUtils.isNotEmpty(comment)) {
                 taskService.addComment(id, task.getProcessInstanceId(), comment);
+            }
+
+            // 记录表单快照为流程变量（用于版本对比/历史）
+            try {
+                if (runtimeService != null && snapshotObj != null) {
+                    String nodeId = task.getTaskDefinitionKey();
+                    String varName = "form_snapshot_" + nodeId + "_" + id;
+                    String latestPtr = "form_snapshot_latest_" + nodeId;
+                    String jsonVal = com.alibaba.fastjson.JSON.toJSONString(snapshotObj);
+                    runtimeService.setVariable(task.getExecutionId(), varName, jsonVal);
+                    // 最新指针：记录最近一次任务ID
+                    runtimeService.setVariable(task.getExecutionId(), latestPtr, id);
+                }
+            } catch (Exception ignore) {
+                // 忽略快照失败，不影响办理
             }
             
             // 完成任务
@@ -223,11 +319,62 @@ public class WorkflowTaskController {
     }
 
     /**
+     * 添加任务评论
+     */
+    @AutoLog(value = "添加任务评论")
+    @Operation(summary = "添加任务评论", description = "为指定任务添加处理意见")
+    @PostMapping("/{id}/comment")
+    public Result<String> addComment(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> params,
+            HttpServletRequest request) {
+
+        try {
+            String username = JwtUtil.getUserNameByToken(request);
+            if (oConvertUtils.isEmpty(username)) {
+                return Result.error("用户未登录");
+            }
+
+            Task task = taskService.createTaskQuery().taskId(id).singleResult();
+            if (task == null) {
+                return Result.error("任务不存在");
+            }
+
+            String message = params == null ? null : (String) params.get("message");
+            if (oConvertUtils.isEmpty(message)) {
+                return Result.error("评论内容不能为空");
+            }
+
+            taskService.addComment(id, task.getProcessInstanceId(), message);
+            return Result.OK("评论已添加");
+        } catch (Exception e) {
+            log.error("添加任务评论失败", e);
+            return Result.error("添加任务评论失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 兼容别名：POST /workflow/task/complete
+     */
+    @AutoLog(value = "完成任务(别名)")
+    @Operation(summary = "完成任务(别名)", description = "兼容 /workflow/task/complete 调用")
+    @PostMapping("/complete")
+    @RequiresPermissions("workflow:task:complete")
+    public Result<String> completeTaskAlias(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        String taskId = (String) body.get("taskId");
+        if (oConvertUtils.isEmpty(taskId)) {
+            return Result.error("taskId不能为空");
+        }
+        return completeTask(taskId, body, request);
+    }
+
+    /**
      * 委托任务
      */
     @AutoLog(value = "委托任务")
     @Operation(summary = "委托任务", description = "委托任务")
     @PutMapping("/{id}/delegate")
+    @RequiresPermissions("workflow:task:delegate")
     public Result<String> delegateTask(
             @PathVariable String id,
             @RequestBody Map<String, Object> params,
@@ -276,6 +423,7 @@ public class WorkflowTaskController {
     @AutoLog(value = "转办任务")
     @Operation(summary = "转办任务", description = "转办任务")
     @PutMapping("/{id}/transfer")
+    @RequiresPermissions("workflow:task:transfer")
     public Result<String> transferTask(
             @PathVariable String id,
             @RequestBody Map<String, Object> params,
@@ -324,6 +472,7 @@ public class WorkflowTaskController {
     @AutoLog(value = "获取任务表单数据")
     @Operation(summary = "获取任务表单数据", description = "获取任务表单数据")
     @GetMapping("/{id}/form")
+    @RequiresPermissions("workflow:task:view")
     public Result<Map<String, Object>> getTaskForm(@PathVariable String id) {
         try {
             Task task = taskService.createTaskQuery().taskId(id).singleResult();
@@ -354,6 +503,7 @@ public class WorkflowTaskController {
     @AutoLog(value = "获取历史任务列表")
     @Operation(summary = "获取历史任务列表", description = "获取历史任务列表")
     @GetMapping("/history")
+    @RequiresPermissions("workflow:task:history")
     public Result<Map<String, Object>> getHistoryTasks(
             @RequestParam(defaultValue = "1") Integer pageNo,
             @RequestParam(defaultValue = "10") Integer pageSize,

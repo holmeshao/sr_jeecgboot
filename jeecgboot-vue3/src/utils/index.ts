@@ -410,7 +410,20 @@ export function getRefPromise(componentRef) {
  * 用new Function替换eval
  */
 export function _eval(str: string) {
- return new Function(`return ${str}`)();
+  try {
+    // 包一层括号，兼容对象字面量/表达式
+    return new Function(`return (${str})`)();
+  } catch (e) {
+    try {
+      // 兜底再尝试一次原始形式
+      return new Function(`return ${str}`)();
+    } catch (err) {
+      // 安全兜底：避免路由导航被打断
+      // eslint-disable-next-line no-console
+      console.warn('[eval-fallback] failed to eval:', str, err);
+      return '' as any;
+    }
+  }
 }
 
 /**

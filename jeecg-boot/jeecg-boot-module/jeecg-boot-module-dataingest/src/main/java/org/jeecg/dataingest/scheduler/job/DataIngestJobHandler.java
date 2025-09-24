@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jeecg.dataingest.entity.DataIngestMoudleIngestTask;
 import org.jeecg.dataingest.core.service.IDataIngestService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.StringUtils;
 import org.springframework.stereotype.Component;
 
 /**
@@ -67,6 +68,47 @@ public class DataIngestJobHandler {
         } catch (Exception e) {
             log.error("通用API数据接入任务执行异常", e);
             XxlJobHelper.handleFail("通用API数据接入任务执行异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 项目人员同步任务（宜昌实名制 -> D6C）
+     * 参数支持：engId, code（可选） 多项目可通过分片或参数列表扩展
+     */
+    @XxlJob("projectWorkerSyncJob")
+    public void projectWorkerSyncJob() {
+        String param = XxlJobHelper.getJobParam();
+        String engId = null;
+        String code = null;
+        if (StringUtils.hasText(param)) {
+            String p = param.trim();
+            if (p.startsWith("{")) {
+                try {
+                    com.alibaba.fastjson.JSONObject obj = com.alibaba.fastjson.JSON.parseObject(p);
+                    engId = obj.getString("engId");
+                    code = obj.getString("code");
+                } catch (Exception ignore) {}
+            } else {
+                engId = p;
+            }
+        }
+
+        log.info("开始执行项目人员同步任务，engId={}, code={}", engId, code);
+        try {
+            if (!StringUtils.hasText(engId)) {
+                XxlJobHelper.handleFail("缺少必需参数 engId");
+                return;
+            }
+
+            // 直接注入的 Service，避免通过 ContextLoader 取Bean失败导致注册异常
+            org.jeecg.dataingest.projectworker.service.ProjectWorkerSyncService svc =
+                org.jeecg.common.util.SpringContextUtils.getBean(org.jeecg.dataingest.projectworker.service.ProjectWorkerSyncService.class);
+
+            org.jeecg.dataingest.projectworker.service.ProjectWorkerSyncService.SyncResult r = svc.sync(engId, code);
+            XxlJobHelper.handleSuccess("项目人员同步执行成功: fetched=" + r.getFetched());
+        } catch (Exception e) {
+            log.error("项目人员同步任务执行异常", e);
+            XxlJobHelper.handleFail("项目人员同步任务执行异常: " + e.getMessage());
         }
     }
     

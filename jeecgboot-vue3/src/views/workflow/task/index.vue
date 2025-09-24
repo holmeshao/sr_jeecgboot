@@ -35,6 +35,9 @@
         
         <template v-if="column.key === 'action'">
           <a-space>
+            <a-button type="link" size="small" @click="handleProcess(record)">
+              办理
+            </a-button>
             <a-button type="link" size="small" @click="handleAssign(record)">
               分配
             </a-button>
@@ -111,22 +114,25 @@
 
 <script lang="ts" setup>
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { BasicTable, useTable } from '/@/components/Table';
 import { BasicModal, useModal } from '/@/components/Modal';
 import { BasicForm, useForm } from '/@/components/Form';
 import { useMessage } from '/@/hooks/web/useMessage';
 import { useI18n } from '/@/hooks/web/useI18n';
 import { workflowTaskApi } from '/@/api/workflow';
+import { defHttp } from '/@/utils/http/axios';
 import { formatToDateTime } from '/@/utils/dateUtil';
 
 const { t } = useI18n();
 const { createMessage } = useMessage();
+const router = useRouter();
 
 const currentTask = ref<any>(null);
 const selectedRowKeys = ref<string[]>([]);
 
 // 表格配置
-const [registerTable, { reload, getSelectRowKeys }] = useTable({
+const [registerTable, { reload, getSelectRowKeys, setProps }] = useTable({
   title: t('routes.workflow.task'),
   api: workflowTaskApi.getAllTasks,
   rowKey: 'id',
@@ -209,6 +215,12 @@ const [registerTable, { reload, getSelectRowKeys }] = useTable({
             { label: '已完成', value: 'completed' },
           ],
         },
+        colProps: { span: 8 },
+      },
+      {
+        field: 'processInstanceId',
+        label: '流程实例ID',
+        component: 'Input',
         colProps: { span: 8 },
       },
     ],
@@ -365,6 +377,27 @@ async function handleBatchAssignSubmit() {
 function handleView(record: any) {
   currentTask.value = record;
   openViewModal();
+}
+
+// 办理（跳转到在线表单SPLIT页）
+async function handleProcess(record: any) {
+  try {
+    const resp: any = await defHttp.get({ url: '/workflow/onlineForm/task/resolve', params: { taskId: record.id } });
+    const data = resp?.result || resp || {};
+    const tableName = data.tableName;
+    const dataId = data.dataId || '';
+    if (!tableName) {
+      createMessage.error('未配置表单Key，无法办理');
+      return;
+    }
+    await router.push({
+      name: 'UniversalFormPage',
+      params: { formType: tableName, dataId },
+      query: { taskId: record.id }
+    });
+  } catch (e) {
+    createMessage.error('跳转办理失败');
+  }
 }
 
 // 删除任务

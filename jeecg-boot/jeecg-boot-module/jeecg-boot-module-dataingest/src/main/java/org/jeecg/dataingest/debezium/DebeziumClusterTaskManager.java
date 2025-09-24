@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 import org.jeecg.dataingest.entity.DataIngestMoudleDataCdcTable;
 import org.jeecg.dataingest.service.INiFiNotificationService;
 import org.jeecg.dataingest.service.IDataIngestMoudleDataCdcTableService;
+import org.jeecg.dataingest.debezium.config.DebeziumProperties;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -50,6 +51,9 @@ public class DebeziumClusterTaskManager {
 
     @Autowired
     private IDataIngestMoudleDataCdcTableService cdcTableService;
+    
+    @Autowired
+    private DebeziumProperties debeziumProperties;
 
     @Value("${server.port:8080}")
     private String serverPort;
@@ -71,6 +75,10 @@ public class DebeziumClusterTaskManager {
 
     @PostConstruct
     public void init() {
+        if (!debeziumProperties.isEnabled()) {
+            log.info("Debezium功能已禁用，跳过集群任务管理器初始化");
+            return;
+        }
         try {
             // 生成节点ID：IP:PORT
             String localIp = InetAddress.getLocalHost().getHostAddress();
@@ -93,6 +101,10 @@ public class DebeziumClusterTaskManager {
      * 启动或重启CDC任务（集群模式）
      */
     public void startOrRestartTask(String taskId, DebeziumTaskConfig config) {
+        if (!debeziumProperties.isEnabled()) {
+            log.info("Debezium功能已禁用，无法启动CDC任务: {}", taskId);
+            return;
+        }
         log.info("集群模式启动/重启CDC任务: {} - {}", taskId, config.getTaskName());
         
         try {

@@ -1,0 +1,20 @@
+FROM m.daocloud.io/library/maven:3.9.9-eclipse-temurin-17 AS builder
+WORKDIR /workspace
+# 仅复制构建 NAR 所需的最小文件，避免上传整个仓库导致构建缓慢
+# 1) 父 POM（jeecg-boot）
+COPY jeecg-boot/pom.xml /workspace/jeecg-boot/pom.xml
+# 2) 模块聚合 POM（jeecg-boot-module）
+COPY jeecg-boot/jeecg-boot-module/pom.xml /workspace/jeecg-boot/jeecg-boot-module/pom.xml
+# 3) Nifi 插件模块源码
+COPY jeecg-boot/jeecg-boot-module/jeecg-boot-module-nifi-plugins /workspace/jeecg-boot/jeecg-boot-module/jeecg-boot-module-nifi-plugins
+
+# 构建 NAR（只构建 nifi-plugins 相关模块）
+RUN mkdir -p /root/.m2 && printf "<settings>\n  <mirrors>\n    <mirror>\n      <id>aliyunmaven</id>\n      <mirrorOf>*</mirrorOf>\n      <name>aliyun</name>\n      <url>https://maven.aliyun.com/repository/public</url>\n    </mirror>\n  </mirrors>\n</settings>\n" > /root/.m2/settings.xml && \
+    mvn -f /workspace/jeecg-boot/jeecg-boot-module/jeecg-boot-module-nifi-plugins/pom.xml -DskipTests -B clean package
+
+FROM m.daocloud.io/apache/nifi:1.25.0
+USER root
+COPY --from=builder /workspace/jeecg-boot/jeecg-boot-module/jeecg-boot-module-nifi-plugins/jeecg-nifi-nar/target/jeecg-nifi-nar-*.nar /opt/nifi/nifi-current/extensions/
+USER nifi
+
+

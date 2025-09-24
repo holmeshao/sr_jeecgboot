@@ -33,6 +33,11 @@
                 onClick: handleEditInDesigner.bind(null, record),
               },
               {
+                icon: 'ant-design:form-outlined',
+                tooltip: '编辑标识',
+                onClick: openEditKeyModal.bind(null, record),
+              },
+              {
                 icon: 'ant-design:history-outlined',
                 tooltip: '版本历史',
                 onClick: openModelVersions.bind(null, record),
@@ -105,6 +110,19 @@
       </div>
     </BasicModal>
 
+    <!-- 编辑标识弹窗 -->
+    <BasicModal v-bind="$attrs" @register="registerEditKeyModal" title="编辑流程标识" @ok="handleEditKeySubmit">
+      <a-form :model="editKeyForm" layout="vertical">
+        <a-form-item label="当前标识">
+          <a-input v-model:value="editKeyForm.oldKey" disabled />
+        </a-form-item>
+        <a-form-item label="新标识" required>
+          <a-input v-model:value="editKeyForm.newKey" placeholder="请输入新的processDefinitionKey" />
+        </a-form-item>
+        <a-alert type="info" show-icon message="将以新标识重新部署（不影响历史实例）。表单绑定请到‘工作流配置’页手动更新 process_key。" />
+      </a-form>
+    </BasicModal>
+
     <!-- 模型版本历史弹窗（与“从模型部署”共用） -->
     <BasicModal v-bind="$attrs" @register="registerModelVersionModal" title="模型版本历史" :footer="null" width="900px">
       <a-table :data-source="modelVersionList" :columns="modelVersionColumns" row-key="id" :pagination="false">
@@ -136,6 +154,8 @@
   const router = useRouter();
 
   const currentRecord = ref<any>(null);
+  const editKeyForm = reactive<any>({ oldKey: '', newKey: '' });
+  const editingRecord = ref<any>(null);
 
   // 表格配置
   const [registerTable, { reload, getSelectRowKeys }] = useTable({
@@ -255,6 +275,7 @@
   const [registerDeployModal, { openModal: openDeployModal, closeModal: closeDeployModal }] = useModal();
   const [registerViewModal, { openModal: openViewModal, closeModal: closeViewModal }] = useModal();
   const [registerModelVersionModal, { openModal: openModelVersionModal, closeModal: closeModelVersionModal }] = useModal();
+  const [registerEditKeyModal, { openModal: openEditKeyModalInner, closeModal: closeEditKeyModal }] = useModal();
 
   // 获取状态颜色
   function getStatusColor(suspended: boolean) {
@@ -264,6 +285,43 @@
   // 跳转到流程设计器
   function handleGoToDesigner() {
     router.push('/workflow/designer');
+  }
+
+  function openEditKeyModal(record: any) {
+    editingRecord.value = record;
+    editKeyForm.oldKey = record.key;
+    editKeyForm.newKey = record.key;
+    openEditKeyModalInner();
+  }
+
+  async function handleEditKeySubmit() {
+    try {
+      const rec = editingRecord.value;
+      if (!rec || !editKeyForm.newKey || editKeyForm.newKey === editKeyForm.oldKey) {
+        closeEditKeyModal();
+        return;
+      }
+      // 1) 拉取XML
+      const xml = await workflowDefinitionApi.getXml(rec.id);
+      const xmlText = typeof xml === 'string' ? xml : (xml.xml || xml.result || '');
+      if (!xmlText) {
+        createMessage.error('未获取到流程XML');
+        return;
+      }
+      // 2) 进行关键处替换：process id/key
+      const oldKey = editKeyForm.oldKey;
+      const newKey = editKeyForm.newKey;
+      let newXml = xmlText
+        .replace(new RegExp(`id="${oldKey}"`, 'g'), `id="${newKey}"`)
+        .replace(new RegExp(`process id=\"${oldKey}\"`, 'g'), `process id="${newKey}"`);
+      // 3) 以新Key重新部署
+      await workflowDefinitionApi.deployByXml({ name: rec.name || newKey, category: rec.category, xml: newXml });
+      createMessage.success('已重部署并更新流程标识');
+      closeEditKeyModal();
+      reload();
+    } catch (e) {
+      createMessage.error('编辑标识失败');
+    }
   }
 
   // 部署流程

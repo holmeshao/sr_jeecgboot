@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
 import org.jeecg.modules.workflow.service.WorkflowEventService;
 import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.repository.ProcessDefinition;
@@ -23,6 +24,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+// Added imports for sync endpoints
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.jeecg.modules.workflow.entity.OnlCgformWorkflowNode;
+import org.jeecg.modules.workflow.mapper.OnlCgformWorkflowNodeMapper;
+import org.apache.shiro.authz.annotation.RequiresPermissions;
+
 /**
  * 工作流程定义管理Controller
  *
@@ -40,6 +47,12 @@ public class WorkflowDefinitionController {
     
     @Autowired
     private WorkflowEventService workflowEventService;
+
+    @Autowired(required = false)
+    private RuntimeService runtimeService;
+
+    @Autowired(required = false)
+    private OnlCgformWorkflowNodeMapper onlCgformWorkflowNodeMapper;
 
     /**
      * 获取流程定义列表
@@ -231,20 +244,66 @@ public class WorkflowDefinitionController {
      */
     @AutoLog(value = "删除流程定义")
     @Operation(summary = "删除流程定义", description = "删除流程定义")
-    @DeleteMapping("/{deploymentId}")
+    @DeleteMapping("/{id}")
     public Result<String> deleteDefinition(
-            @PathVariable String deploymentId,
+            @PathVariable String id,
             @RequestParam(defaultValue = "false") Boolean cascade) {
         
         try {
+            // 兼容：前端可能传的是 流程定义ID(processDefinitionId)，而非 部署ID(deploymentId)
+            String resolvedDeploymentId = id;
+
+            ProcessDefinition definition = null;
+            try {
+                definition = repositoryService.getProcessDefinition(id);
+            } catch (Exception ignore) { /* ignore lookup errors */ }
+
+            if (definition != null) {
+                resolvedDeploymentId = definition.getDeploymentId();
+            }
+
+            // 校验部署是否存在
+            Deployment deployment = repositoryService.createDeploymentQuery()
+                    .deploymentId(resolvedDeploymentId)
+                    .singleResult();
+            if (deployment == null) {
+                String msg = "未找到部署：" + resolvedDeploymentId + "。若传入的是流程定义ID，请直接传该定义ID或其对应的部署ID。";
+                log.error("删除流程定义失败：{}", msg);
+                return Result.error(msg);
+            }
+
+            // 非级联删除时，若仍有运行中的流程实例，给出友好提示
+            if (Boolean.FALSE.equals(cascade) && runtimeService != null) {
+                long running = 0L;
+                if (definition != null) {
+                    running = runtimeService.createProcessInstanceQuery()
+                            .processDefinitionId(definition.getId())
+                            .count();
+                } else {
+                    List<ProcessDefinition> defs = repositoryService.createProcessDefinitionQuery()
+                            .deploymentId(resolvedDeploymentId)
+                            .list();
+                    if (defs != null) {
+                        for (ProcessDefinition pd : defs) {
+                            running += runtimeService.createProcessInstanceQuery()
+                                    .processDefinitionId(pd.getId())
+                                    .count();
+                        }
+                    }
+                }
+                if (running > 0) {
+                    return Result.error("存在运行中的流程实例（" + running + " 个），请先完成/终止实例，或在请求中携带 cascade=true 强制删除（同时删除实例）");
+                }
+            }
+
             if (cascade) {
                 // 级联删除，同时删除流程实例
-                repositoryService.deleteDeployment(deploymentId, true);
+                repositoryService.deleteDeployment(resolvedDeploymentId, true);
             } else {
-                repositoryService.deleteDeployment(deploymentId);
+                repositoryService.deleteDeployment(resolvedDeploymentId);
             }
-            
-            log.info("流程定义删除成功，部署ID：{}", deploymentId);
+
+            log.info("流程定义删除成功，部署ID：{} (请求ID：{})", resolvedDeploymentId, id);
             return Result.OK("流程定义删除成功");
             
         } catch (Exception e) {
@@ -281,6 +340,68 @@ public class WorkflowDefinitionController {
     }
 
     /**
+     * 通过XML字符串部署流程定义（JSON直传，无需multipart/file）
+     */
+    @AutoLog(value = "部署流程定义(JSON/XML)")
+    @Operation(summary = "部署流程定义(JSON/XML)", description = "Body传 { name, category, xml }，xml为BPMN XML字符串")
+    @PostMapping("/deployByXml")
+    public Result<String> deployByXml(@RequestBody Map<String, Object> body) {
+        try {
+            if (body == null) {
+                return Result.error("请求体不能为空");
+            }
+            String name = body.getOrDefault("name", "process").toString();
+            String category = body.getOrDefault("category", "").toString();
+            String description = String.valueOf(body.getOrDefault("description", ""));
+            Object xmlObj = body.get("xml");
+            if (xmlObj == null) {
+                return Result.error("缺少xml字段");
+            }
+            String xml = String.valueOf(xmlObj);
+            if (xml.trim().isEmpty()) {
+                return Result.error("xml内容为空");
+            }
+
+            // 统一处理：直接用字符串部署
+            String resourceName = (name != null && name.trim().length() > 0 ? name.trim() : "process") + ".bpmn20.xml";
+            java.io.InputStream inputStream = new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            org.flowable.engine.repository.DeploymentBuilder builder = repositoryService.createDeployment()
+                    .addInputStream(resourceName, inputStream)
+                    .name(name)
+                    .category(category);
+            if (description != null && description.trim().length() > 0) {
+                try {
+                    builder.addString("deployment-description.txt", description);
+                } catch (Exception ignore) {}
+            }
+            Deployment deployment = builder.deploy();
+
+            // 触发部署后事件（与文件上传部署保持一致）
+            try {
+                List<ProcessDefinition> processDefinitions = repositoryService.createProcessDefinitionQuery()
+                    .deploymentId(deployment.getId())
+                    .list();
+                for (ProcessDefinition pd : processDefinitions) {
+                    try {
+                        log.info("自动触发流程定义部署后处理：{}", pd.getKey());
+                        workflowEventService.onProcessDefinitionDeployed(pd.getKey());
+                    } catch (Exception e) {
+                        log.error("流程定义部署后处理失败：" + pd.getKey(), e);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("部署后事件处理异常，不影响部署：{}", e.getMessage());
+            }
+
+            log.info("流程定义(JSON)部署成功，部署ID：{}", deployment.getId());
+            return Result.OK("流程定义部署成功", deployment.getId());
+        } catch (Exception e) {
+            log.error("部署流程定义(JSON)失败", e);
+            return Result.error("部署流程定义失败：" + e.getMessage());
+        }
+    }
+
+    /**
      * 挂起/激活流程定义
      */
     @AutoLog(value = "挂起/激活流程定义")
@@ -311,6 +432,126 @@ public class WorkflowDefinitionController {
         } catch (Exception e) {
             log.error("切换流程定义状态失败", e);
             return Result.error("切换流程定义状态失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 同步：将配置表写入 BPMN 扩展（仅返回XML，不直接部署）
+     */
+    @AutoLog(value = "流程定义-同步配置到BPMN")
+    @Operation(summary = "同步配置到BPMN", description = "根据配置表(onl_cgform_workflow_node)写入用户任务的formKey到userTask属性，返回更新后的XML（不部署）")
+    @PostMapping("/{id}/syncFromConfig")
+    @RequiresPermissions("workflow:definition:sync")
+    public Result<String> syncFromConfig(@PathVariable String id) {
+        try {
+            ProcessDefinition definition = repositoryService.getProcessDefinition(id);
+            if (definition == null) {
+                return Result.error("流程定义不存在");
+            }
+            InputStream is = repositoryService.getResourceAsStream(
+                definition.getDeploymentId(), definition.getResourceName());
+            String xml = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+            if (onlCgformWorkflowNodeMapper == null) {
+                return Result.error("未启用节点配置组件，无法同步");
+            }
+            String processKey = definition.getKey();
+            List<OnlCgformWorkflowNode> nodes = onlCgformWorkflowNodeMapper.selectList(
+                new LambdaQueryWrapper<OnlCgformWorkflowNode>()
+                    .eq(OnlCgformWorkflowNode::getProcessDefinitionKey, processKey)
+                    .eq(OnlCgformWorkflowNode::getStatus, 1)
+            );
+
+            if (nodes != null) {
+                for (OnlCgformWorkflowNode n : nodes) {
+                    String nodeId = n.getNodeId();
+                    String formKey = null;
+                    try {
+                        java.lang.reflect.Method gm = n.getClass().getMethod("getFormKey");
+                        Object v = gm.invoke(n);
+                        formKey = v == null ? null : String.valueOf(v);
+                    } catch (Exception ignore) {}
+                    if (nodeId == null || nodeId.isEmpty() || formKey == null || formKey.isEmpty()) {
+                        continue;
+                    }
+
+                    // 针对特定 userTask（id=...）写入/更新 formKey 属性（简化版正则处理）
+                    String utPattern = "(<userTask[^>]*id=\\\"" + java.util.regex.Pattern.quote(nodeId) + "\\\"[^>]*)(>)";
+                    java.util.regex.Pattern p = java.util.regex.Pattern.compile(utPattern);
+                    java.util.regex.Matcher m = p.matcher(xml);
+                    StringBuffer sb = new StringBuffer();
+                    boolean found = false;
+                    while (m.find()) {
+                        found = true;
+                        String startTag = m.group(1);
+                        // 先尝试替换已有 formKey
+                        String replaced = startTag.replaceAll("formKey=\\\".*?\\\"", "formKey=\\\"" + java.util.regex.Matcher.quoteReplacement(formKey) + "\\\"");
+                        if (!replaced.contains("formKey=\"")) {
+                            replaced = replaced + " formKey=\\\"" + java.util.regex.Matcher.quoteReplacement(formKey) + "\\\"";
+                        }
+                        m.appendReplacement(sb, replaced + ">");
+                    }
+                    if (found) {
+                        m.appendTail(sb);
+                        xml = sb.toString();
+                    }
+                }
+            }
+
+            return Result.OK(xml);
+        } catch (Exception e) {
+            log.error("同步配置到BPMN失败", e);
+            return Result.error("同步失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 同步：从 BPMN 读取 formKey 回写到配置表（仅更新已存在的记录，非权威导入）
+     */
+    @AutoLog(value = "流程定义-从BPMN同步到配置")
+    @Operation(summary = "从BPMN同步到配置", description = "读取BPMN中用户任务的formKey，回写到onl_cgform_workflow_node（仅更新存在记录）")
+    @PostMapping("/{id}/syncToConfig")
+    @RequiresPermissions("workflow:definition:sync")
+    public Result<String> syncToConfig(@PathVariable String id) {
+        try {
+            ProcessDefinition definition = repositoryService.getProcessDefinition(id);
+            if (definition == null) {
+                return Result.error("流程定义不存在");
+            }
+            InputStream is = repositoryService.getResourceAsStream(
+                definition.getDeploymentId(), definition.getResourceName());
+            String xml = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            String processKey = definition.getKey();
+
+            if (onlCgformWorkflowNodeMapper == null) {
+                return Result.error("未启用节点配置组件，无法同步");
+            }
+
+            // 简化解析：匹配所有 userTask，提取 id 与 formKey
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("<userTask[^>]*id=\\\"(.*?)\\\"[^>]*>");
+            java.util.regex.Matcher m = p.matcher(xml);
+            int updated = 0;
+            while (m.find()) {
+                String startTag = m.group();
+                String nodeId = m.group(1);
+                java.util.regex.Matcher mk = java.util.regex.Pattern.compile("formKey=\\\"(.*?)\\\"").matcher(startTag);
+                if (mk.find()) {
+                    String formKey = mk.group(1);
+                    try {
+                        OnlCgformWorkflowNode existing = onlCgformWorkflowNodeMapper.selectByProcessAndNode(processKey, nodeId);
+                        if (existing != null) {
+                            java.lang.reflect.Method sm = existing.getClass().getMethod("setFormKey", String.class);
+                            sm.invoke(existing, formKey);
+                            onlCgformWorkflowNodeMapper.updateById(existing);
+                            updated++;
+                        }
+                    } catch (Exception ignore) {}
+                }
+            }
+            return Result.OK("已更新 " + updated + " 条记录");
+        } catch (Exception e) {
+            log.error("从BPMN同步到配置失败", e);
+            return Result.error("同步失败：" + e.getMessage());
         }
     }
 }

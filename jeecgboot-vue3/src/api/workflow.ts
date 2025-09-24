@@ -456,6 +456,16 @@ export const workflowDefinitionApi = {
   },
 
   /**
+   * 通过XML字符串部署流程定义（JSON 直传）
+   */
+  deployByXml: (data: { name: string; category?: string; description?: string; xml: string }) => {
+    return defHttp.post<any>({
+      url: '/workflow/definition/deployByXml',
+      data,
+    });
+  },
+
+  /**
    * 获取流程定义XML
    */
   getXml: (id: string) => {
@@ -724,4 +734,36 @@ export const workflowStatsApi = {
       params,
     });
   },
+};
+
+// ============ 流程附件 API（为兼容组件导入，这里也导出一份） ============
+
+export const workflowAttachmentApi = {
+  add: (data: { taskId?: string; processInstanceId?: string; name: string; description?: string; url: string }) =>
+    defHttp.post<any>({ url: '/workflow/attachment', data }),
+  list: (params: { processInstanceId: string; taskId?: string }) =>
+    defHttp.get<any>({ url: '/workflow/attachment', params }),
+  remove: (id: string) => defHttp.delete<any>({ url: `/workflow/attachment/${id}` }),
+};
+
+// ============ 渲染数据 API（node schema / history / compare） ============
+
+export const workflowRenderApi = {
+  getNodeRender: (params: { formId: string; processDefinitionKey: string; nodeId: string; processInstanceId?: string }) =>
+    defHttp.get<any>({ url: '/workflow/render/node', params }),
+  getHistory: (params: { processInstanceId: string; nodeId?: string; pageNo?: number; pageSize?: number }) =>
+    defHttp.get<any>({ url: '/workflow/render/history', params }),
+  getHistoryDetail: (params: { processInstanceId: string; nodeId: string; taskId: string }) =>
+    defHttp.get<any>({ url: '/workflow/render/history/detail', params }),
+  compare: (params: { processInstanceId: string; nodeId: string; leftTaskId: string; rightTaskId: string }) =>
+    defHttp.get<any>({ url: '/workflow/render/history/compare', params }),
+  compareLatest: (params: { processInstanceId: string; nodeId: string; taskId: string }) =>
+    defHttp.get<any>({ url: '/workflow/render/history/compareLatest', params }),
+};
+
+// ============ 配置查询 API（ui_mode） ============
+
+export const workflowConfigApi = {
+  getUiMode: (params: { cgformHeadId: string; processDefinitionKey?: string }) =>
+    defHttp.get<any>({ url: '/workflow/config/uiMode', params }),
 };

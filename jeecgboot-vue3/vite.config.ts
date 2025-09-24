@@ -51,6 +51,11 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
           find: 'vue-i18n',
           replacement: 'vue-i18n/dist/vue-i18n.cjs.js',
         },
+        // 优先使用本地 vendored online 源码，便于二开与断点
+        {
+          find: /^@jeecg\/online\/src\//,
+          replacement: pathResolve('vendor/online/src') + '/',
+        },
         // /@/xxxx => src/xxxx
         {
           find: /\/@\//,
@@ -117,6 +122,7 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
     define: {
       // setting vue-i18-next
       // Suppress warning
+      __VUE_PROD_DEVTOOLS__: isBuild,
       __INTLIFY_PROD_DEVTOOLS__: false,
       __APP_INFO__: JSON.stringify(__APP_INFO__),
     },

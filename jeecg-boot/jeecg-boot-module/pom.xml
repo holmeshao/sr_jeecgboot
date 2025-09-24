@@ -11,5 +11,37 @@
     <module>jeecg-module-demo</module>
     <module>jeecg-boot-module-airag</module>
     <module>jeecg-boot-module-dataingest</module>
+    <!-- <module>jeecg-boot-module-nifi-plugins</module> -->
   </modules>
+  
+  <!-- Add repositories so build extensions like NiFi NAR plugin resolve early -->
+  <repositories>
+    <repository>
+      <id>central</id>
+      <url>https://repo.maven.apache.org/maven2</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+    <repository>
+      <id>apache-public</id>
+      <url>https://repository.apache.org/content/groups/public/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+  </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <id>central</id>
+      <url>https://repo.maven.apache.org/maven2</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </pluginRepository>
+    <pluginRepository>
+      <id>apache-public</id>
+      <url>https://repository.apache.org/content/groups/public/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </pluginRepository>
+  </pluginRepositories>
 </project>

@@ -5,6 +5,9 @@ import org.flowable.engine.ProcessEngine;
 import org.flowable.common.engine.api.delegate.event.FlowableEngineEventType;
 import org.jeecg.modules.workflow.parser.BpmnFieldPermissionParser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.flowable.engine.impl.bpmn.parser.factory.DefaultListenerFactory;
+import org.jeecg.modules.workflow.listener.DefaultCandidateResolverTaskListener;
+import org.jeecg.modules.workflow.listener.CandidateResolveEventListener;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -25,6 +28,10 @@ public class WorkflowEventListenerConfig implements ApplicationRunner {
     
     @Autowired
     private BpmnFieldPermissionParser bpmnFieldPermissionParser;
+    @Autowired
+    private DefaultCandidateResolverTaskListener defaultCandidateResolverTaskListener;
+    @Autowired
+    private CandidateResolveEventListener candidateResolveEventListener;
     
     @Override
     public void run(ApplicationArguments args) throws Exception {
@@ -38,6 +45,21 @@ public class WorkflowEventListenerConfig implements ApplicationRunner {
             log.info("流程部署事件监听器注册成功");
         } catch (Exception e) {
             log.warn("流程部署事件监听器注册失败: {}", e.getMessage());
+        }
+
+        // 将默认候选解析监听器注册到 Spring 容器，供 BPMN 模型以表达式引用
+        // 使用方法（设计器里）：
+        //  在 UserTask 的 TaskListener：event=create, delegateExpression=${defaultCandidateResolverTaskListener}
+        try {
+            log.info("默认候选解析监听器可用：{}", defaultCandidateResolverTaskListener != null);
+        } catch (Exception ignore) {}
+
+        // 全局事件：在任务创建时解析并展开候选人（不依赖BPMN是否配置监听器）
+        try {
+            processEngine.getRuntimeService().addEventListener(candidateResolveEventListener, FlowableEngineEventType.TASK_CREATED);
+            log.info("已注册全局候选解析事件监听器 (TASK_CREATED)");
+        } catch (Exception e) {
+            log.warn("注册全局候选解析事件监听器失败: {}", e.getMessage());
         }
         
         log.info("工作流事件监听器注册完成");

@@ -46,6 +46,10 @@ async function bootstrap(props?: MainAppProps) {
   const app = createApp(App);
   // 【QQYUN-6329】
   window['JAppRootInstance'] = app;
+  // 在生产模式临时开启 Vue Devtools
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.PROD) {
+    app.config.devtools = true;
+  }
 
   // 创建路由
   createRouter();

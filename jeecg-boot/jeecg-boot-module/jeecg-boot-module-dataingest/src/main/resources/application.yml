@@ -3,6 +3,17 @@ server:
   servlet:
     context-path: /dataingest
 
+# NiFi 集成配置（来自 application-dataingest.yml）
+nifi:
+  api:
+    base-url: http://localhost:8080/nifi-api
+    timeout: 5000
+    connection-timeout: 3000
+    read-timeout: 10000
+  notification:
+    enabled: true
+    async: true
+
 spring:
   application:
     name: jeecg-dataingest
@@ -79,6 +90,13 @@ spring:
     host: jeecg-boot-redis
     port: 6379
     password:
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: -1ms
 
 
 
@@ -146,6 +164,23 @@ org-jeecg-dataingest-debezium:
     database-history: io.debezium.relational.history.FileDatabaseHistory
     database-history-file-filename: dbhistory.dat
 
+# Debezium 集群配置（来自 application-dataingest.yml）
+debezium:
+  enabled: false
+  cluster:
+    enabled: true
+    node-id: ${spring.application.name}-${server.port}
+    heartbeat-interval: 30
+    assignment-interval: 60
+    node-timeout: 180
+  storage:
+    offset-path: /tmp/debezium/offsets
+    history-path: /tmp/debezium/history
+  processing:
+    batch-size: 1000
+    process-interval: 5000
+    max-retry: 3
+
 # 金蝶配置
 org-jeecg-dataingest-kingdee:
   cloud:
@@ -171,13 +206,17 @@ org-jeecg-dataingest-kingdee:
 # XXL-Job配置
 xxl:
   job:
-    admin-addresses: http://jeecg-boot-xxljob:9080/xxl-job-admin
+    # 调度中心地址：根据你的环境修改为可达地址（本机示例）
+    admin-addresses: http://localhost:9080/xxl-job-admin
+    # 执行器名称：需与调度中心执行器分组一致
     appname: data-ingest-executor
     address: 
     ip: 
     port: 10099
     log-path: /data/applogs/xxl-job/jobhandler
     log-retention-days: 30
+    # 若调度中心设置了登录/访问 Token，请同步配置（没有可留空）
+    access-token: 
 
 # 日志配置
 logging:
@@ -192,12 +231,49 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
 
+# 来自 application-dataingest.yml 的自定义日志级别
+# 保持现有级别为主，如需更细粒度可在此扩展
+# org.jeecg.common.util.SqlInjectionUtil: INFO
+
 # 管理端点配置
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# 项目人员信息集成配置（由 application-dataingest.yml 合并而来）
+projectworker:
+  yichangApi:
+    base: https://zhcjsmz.sanxiacloud.com
+    personPath: /labor/externalCall/person
+    enablePhotoEnrich: false
+  d6cApi:
+    gateway: https://d6cnext.haolink.cn/
+    method:
+      company: ProjectCorp.Upload
+      team: ProjectTeam.Upload
+      personBasic: ProjectWorker.Upload
+      person: ProjectWorkerEntryExit.Upload
+  projectConfig:
+    # 外部 JSON 路径。支持前缀: classpath:/ 与 file:/
+    # 示例：PROJECTWORKER_PROJECTS_PATH=file:/etc/jeecg/dataingest/projectworker/project-projects.json
+    jsonPath: ${PROJECTWORKER_PROJECTS_PATH:classpath:projectworker/project-projects.json}
+    nacos:
+      enabled: false
+      # 仅需 dataId 和 group，其它连接参数沿用 spring.cloud.nacos.config.*
+      dataId: projectworker-projects.json
+      group: ${NACOS_GROUP:DEFAULT_GROUP}
+      timeoutMs: 3000
+  defaults:
+    defaultBase64Image: ""
+    corpTypeMapping: {}
+    corpCodeMapping: {}
+    workTypeRules: []

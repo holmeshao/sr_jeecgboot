@@ -39,6 +39,9 @@ public class XXLJobConfig {
     /**执行器日志文件保存天数*/
     private int logRetentionDays;
     
+    /**调度中心访问Token（可选）*/
+    private String accessToken;
+    
     @Bean
     public XxlJobSpringExecutor xxlJobExecutor() {
         XxlJobSpringExecutor xxlJobSpringExecutor = new XxlJobSpringExecutor();
@@ -49,6 +52,7 @@ public class XXLJobConfig {
         xxlJobSpringExecutor.setPort(port);
         xxlJobSpringExecutor.setLogPath(logPath);
         xxlJobSpringExecutor.setLogRetentionDays(logRetentionDays);
+        xxlJobSpringExecutor.setAccessToken(accessToken);
         return xxlJobSpringExecutor;
     }
 } 

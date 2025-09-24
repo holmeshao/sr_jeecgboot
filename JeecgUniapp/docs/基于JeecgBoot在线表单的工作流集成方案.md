@@ -1,4 +1,15 @@
-# JeecgBoot在线表单工作流集成方案（最终版v3.0）
+# JeecgBoot在线表单工作流集成方案（精简版 v3.1）
+
+## TL;DR（快速落地指南）
+- 核心字段：业务表新增 `process_instance_id`、`bmp_status`（隐藏/只读）。
+- 启动与办理：前端统一在 `UniversalFormPage.vue` 提交；后端已支持 `complete(taskId,{ variables, comment })`。
+- 同意/驳回：前端已自动传 `approve_result=pass|reject`，网关可直接用 `${approve_result=='pass'}`。
+- 变量注入（推荐）：
+  - 配置层：工作流配置的 JSON 增加 `workflow.variables`（节点→变量名白名单）。
+  - 赋值层：在线表单"JS增强"定义 `window.WF_collectVars(formData, ctx)`，返回扁平 JSON。
+  - 透传层：提交前按"当前节点 + 白名单"过滤后合并到 `submitData.variables` 再 `complete(...)`。
+- 快照：按需在节点完成时写入 `form_snapshot_<nodeKey>` 到流程变量，用于历史/对比（可选）。
+- 变量透传（本方案新增）：提交前按 `workflow.variables[currentNodeId]` 白名单，从 `WF_collectVars(formData, { nodeKey: currentNodeId, processDefinitionKey })` 的返回对象中挑选对应键合并到 `variables`，再调用 `complete(...)`；若未配置或方法不存在，则仅透传内置变量（如 `approve_result`）。
 
 ## 1. 设计理念与核心原则
 
@@ -97,6 +108,35 @@ CREATE TABLE `onl_cgform_workflow_config` (
 );
 ```
 
+#### 2.1.3 节：节点变量注入（当前实现方案，低代码）
+- 目的：以最少改动实现"节点→变量"的可配置注入，满足网关条件判断。
+- 三层分工：
+  - 配置层（工作流配置 Tab）：
+    ```json
+    {
+      "workflow": {
+        "variables": {
+          "repair_plan": ["isWarranty", "amount", "cityCode"],
+          "leader_review": ["approve_result"]
+        }
+      }
+    }
+    ```
+  - 赋值层（在线表单 JS增强）：
+    ```js
+    // 仅示例：前端可得变量（不查库版）
+    window.WF_collectVars = function(formData, ctx){
+      const isWarranty = !!formData.warranty_end_date && Date.now() < new Date(formData.warranty_end_date).getTime();
+      const amount = Number(formData.apply_amount || 0);
+      const cityCode = formData.city_code || '';
+      return { isWarranty, amount, cityCode };
+    };
+    ```
+  - 透传层（提交入口）：在提交任务前，若存在 `workflow.variables[currentNodeId]` 与 `window.WF_collectVars`，则调用并按白名单过滤，合并到 `submitData.variables` 后再 `complete(...)`。
+- 备注：
+  - 同意/驳回已自动透传 `approve_result`；
+  - "当前节点"来自任务详情的 `taskDefinitionKey`；下个节点由引擎依据变量与网关表达式决定，前端无需预知。
+
 ### 2.2 基于Flowable变量的版本控制（创新方案）
 
 **核心理念：利用Flowable自身的流程变量机制实现表单版本化，无需额外的版本表**
@@ -135,7 +175,7 @@ String snapshotJson = (String) runtimeService.getVariable(
 FormSnapshot snapshot = JSON.parseObject(snapshotJson, FormSnapshot.class);
 ```
 
-### 2.3 Flowable设计器集成权限配置（核心创新）
+### 2.3 Flowable设计器集成权限配置（状态：规划/进行中）
 
 **设计思路：在流程设计时直接配置字段权限，实现一体化设计，智能默认策略**
 
@@ -198,7 +238,16 @@ ORYX.Plugins.FieldPermissionPropertyCtrl = ORYX.Plugins.AbstractPropertyCtrl.ext
 </bpmn:userTask>
 ```
 
-#### 2.3.4 智能默认权限策略
+### 2.4 双模式 UI 策略（按流程开关）
+（精简保留要点：保留 SPLIT/INTEGRATED 概念与最小 DDL，详细交互图示省略）
+
+### 2.5 节点 Schema（字段 + 附件）通用模型
+（精简保留要点：定义放置于 `ui_schema_json`；运行时合并顺序"显式 > ui_schema_json > field_extend_json > 默认"。）
+
+### 2.6 职责边界与兼容顺序
+（精简保留要点：字段级权限以 `field_extend_json.workflow` 为准，未配置走智能默认；设计器集成待规划落地。）
+
+### 2.7 智能默认权限策略
 
 ```java
 @Service
@@ -789,6 +838,21 @@ public class FormDisplayModeService {
 }
 ```
 
+#### 4.2.3 融合模式的页面结构与按钮布局（INTEGRATED）
+
+- 布局：
+  - 左侧：在线表单（业务字段按权限渲染）+ 当前节点"节点区块"（依据 `workflow.nodes.<nodeId>.fields/attachments` 渲染）
+  - 右侧：流程进度/快速操作（可切换为抽屉）
+  - 底部吸附操作条：同意/驳回/转办等按钮 + 审批意见输入，确保与附件同页不割裂
+- 节点区块：
+  - 非当前节点：只读展示"最近一次"字段值与附件
+  - 当前节点：字段可编辑；附件显示多个分组上传区（受 accept/maxCount 约束）
+
+#### 4.2.4 "最新与历史"展示与交互
+
+- 主视图：按节点取最近一次完成的 `taskId` 展示对应字段与附件
+- 历史时间线：按时间列出每次提交/驳回，展开可见当时字段差异与附件列表；支持图片预览、非图片下载
+
 ### 4.3 Tab组合模式（适合复杂场景）
 
 **适用场景：信息量大、操作复杂的工作流表单**
@@ -1179,6 +1243,35 @@ export default {
 </template>
 ```
 
+### 4.8 动作按钮与参数采集策略（当前实现与扩展点）
+
+为保证"简单优先"的体验，当前阶段对流程动作按钮采用极简策略，并预留可扩展的参数采集能力，满足未来如"转办/指派/退回到指定节点/抄送"等场景的扩展。
+
+- 当前策略（默认不弹窗）
+  - 提交/同意/驳回：直接执行，不弹出额外对话框。
+  - 审批意见：统一在页面底部"处理意见"输入框采集并随动作提交。
+  - 权限控制：后端 `/workflow/onlineForm/smartButtons` 输出 + Shiro 过滤为准，前端可做兜底判定（双重保障）。
+
+- 预留扩展点（可选启用，默认不使用）
+  - confirmMessage：按钮模型可携带可选字段 `confirmMessage`，用于二次确认；当前默认不下发、不触发。
+  - paramsSchema：按钮模型可携带可选字段 `paramsSchema`，用于声明需要额外采集的参数（如"选择下一处理人""退回到哪个节点""抄送对象"等）。
+    - 前端 `SmartButtonGroup` 预留透传与弹出轻量选择器的能力；未提供 `paramsSchema` 时不弹窗，行为与当前一致。
+  - 扩展动作示例（未来）：转办/指派/退回指定节点/抄送/设置截止时间等，按需启用对应 `paramsSchema` 条目以触发最小化参数采集。
+
+- 数据透传与提交约定（与现有实现兼容）
+  - 同意/驳回：
+    - 提交体包含：`{ variables: { ...nodeModel, approve_result: 'pass'|'reject' }, comment }`。
+  - 未来扩展：
+    - 采集参数以 `extraParams` 形式附加：`{ variables, comment, extraParams }` 或合并进 `variables`（由后端统一解析）。
+
+- 后端按钮接口字段（当前与规划）
+  - 必选：`id, code, text, type, icon, action, permission, order`
+  - 可选（预留）：`confirmMessage?`, `paramsSchema?`（当前阶段默认不下发，前端忽略也不影响行为）
+
+- 兼容性说明
+  - 未声明 `confirmMessage`/`paramsSchema` 的按钮，行为完全不变（即"默认不弹窗"）。
+  - 两种 UI 模式（SPLIT/INTEGRATED）均通过统一的 `smartButtons` 输出渲染，策略一致。
+
 ## 5. 实施路径与时间规划
 
 ### 5.1 第一阶段：基础集成（2-3周）
@@ -1199,6 +1292,18 @@ export default {
 - ✅ 基础的任务提交功能正常
 - ✅ 智能默认权限策略生效（发起人可编辑，其他只读）
 
+### 5.1.1 增量项（本方案新增）
+1. 配置层：为 `onl_cgform_workflow_config` 新增 `ui_mode` 字段（SPLIT/INTEGRATED）
+   - 新增 `ui_schema_json`（节点扩展 UI Schema）字段，用于融合模式渲染；PG 建议使用 `jsonb`
+2. 后端层：
+   - OnlineFormPermissionEngine 增强：解析 `workflow.nodes`（字段+附件分组），并与现有权限合成
+   - 节点提交：额外字段写入流程变量；附件登记已完成（description 存 nodeId/category/uploader/fileId?）
+3. 前端层：
+   - 新增"节点区块"组件：根据 `workflow.nodes.<nodeId>.fields` 自动渲染控件
+   - 升级 `ProcessAttachments`：支持多分组上传区（category 即分组 key），主视图显示"最新"，历史面板展示全量
+   - 融合模式页：加入底部吸附操作条
+4. 文档与配置示例：完成（本章）
+
 ### 5.2 第二阶段：Flowable设计器扩展（3-4周）
 
 #### 目标：实现一体化权限配置
@@ -1214,8 +1319,32 @@ export default {
 #### 验收标准
 - ✅ 流程设计器中可以配置字段权限
 - ✅ 流程部署时自动解析并同步权限配置
-- ✅ 支持显式配置和智能默认的混合模式
+- ✅ 支持显式配置、字段扩展（workflow.nodes）与智能默认的混合模式
 - ✅ 配置界面友好，支持批量操作
+
+### 5.5 UI Schema 可视化设计器（规划）
+
+目标：用所见即所得的方式为"节点扩展字段/附件"产出 `ui_schema_json`，减少手写 JSON。
+
+- 数据表（MySQL 示例）：
+```sql
+CREATE TABLE `onl_cgform_workflow_ui` (
+  `id` varchar(32) PRIMARY KEY,
+  `cgform_head_id` varchar(32) NOT NULL COMMENT '表单ID',
+  `process_definition_key` varchar(100) NOT NULL COMMENT '流程定义Key',
+  `ui_schema_json` mediumtext COMMENT '节点UI Schema(JSON)',
+  `status` tinyint(1) DEFAULT 1,
+  `version` int DEFAULT 1,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_form_process_ui` (`cgform_head_id`, `process_definition_key`)
+);
+```
+
+- 设计器要点：
+  - 左侧节点树（BPMN 用户任务），右侧控件列表（可添加控件：input/textarea/number/date/select/radio/checkbox/file 等）
+  - 控件属性编辑（label/key/required/readonly/hidden/rules、文件 accept/multiple/maxCount/maxSizeMB 等）
+  - 导出/保存生成 `ui_schema_json` 写入配置表；运行时前端按该 JSON 渲染
 
 ### 5.3 第三阶段：版本控制与高级功能（2-3周）
 
@@ -1350,7 +1479,7 @@ export default {
    - 通用字段：各节点根据需要可编辑（审批意见等）
    - 敏感字段：按需隐藏或限制权限
 
-2. **性能优化建议**  
+2. **性能优化建议  
    - 大表单启用快照压缩
    - 定期清理历史版本数据
    - 合理设置缓存策略
@@ -1359,3 +1488,235 @@ export default {
    - 流程设计师：重点培训权限配置功能
    - 业务用户：重点培训表单操作和流程查看
    - 管理员：重点培训监控和维护
+
+### 8.3 字段权限标注规范（field_extend_json）
+
+#### 8.3.1 放置位置与目的
+- 放置位置：在线表单字段元数据 `OnlCgformField.fieldExtendJson`（页面属性），非业务数据列。
+- 使用目的：为"每个字段"配置在不同流程节点的显示/编辑/必填等权限，用于运行时快速合成"字段权限结果"。
+
+#### 8.3.2 JSON 结构（两种等价写法，后端会做兼容与归一）
+- 简化版（单流程或默认生效）：
+```json
+{
+  "workflow": {
+    "visible": ["start", "leader_review", "qa_check"],
+    "editable": ["start"],
+    "required": { "leader_review": true }
+  }
+}
+```
+
+- 精确版（推荐，语义更清晰，与权限引擎一致）：
+```json
+{
+  "workflow": {
+    "default": {
+      "editable": ["start"],
+      "readonly": ["leader_review", "qa_check"],
+      "hidden": [],
+      "required": { "leader_review": true }
+    },
+    "repair_process": {
+      "editable": ["repair_handle", "qa_check"],
+      "readonly": ["start"],
+      "hidden": ["internal_notes"],
+      "required": { "qa_check": true }
+    }
+  }
+}
+```
+
+说明与约定：
+- `wf` 为工作流权限配置命名空间；支持多流程 Key（如 `repair_process`），未匹配时回退到 `default`。
+- 列表值为 `TaskDefinitionKey`（BPMN `<userTask id="...">` 的 id）。
+- 归一规则优先级：`hidden > readonly > editable`。若仅配置了 `visible`/`editable`（简化版），后端将转换为显式的 `editable/readonly/hidden`。
+
+#### 8.3.3 运行时合成（Quick 版）
+输入：当前流程上下文（当前节点、已完成节点、未来节点）、字段的 `fieldExtendJson`、（可选）部署时解析得到的显式节点配置。
+合成策略：
+1) 历史节点：业务字段一律只读，通用流程字段（如意见）可读；不允许上传/删除附件。
+2) 未来节点：默认隐藏。
+3) 当前节点：按"显式配置（若有）→ 字段 `fieldExtendJson` → 智能默认策略"的顺序合并；优先级 `hidden > readonly > editable`；`required` 按节点逐项生效。
+
+伪代码：
+```java
+FormPermission p = merge(
+  explicitFromBpmn(processKey,node),
+  fromFieldExtendJson(field, processKey, node),
+  defaultStrategy(formId, node)
+);
+apply(p);
+```
+
+### 8.4 TaskDefinitionKey 的含义与获取
+- 定义：Flowable/BPMN 中"用户任务"的标识，即 `<bpmn:userTask id="...">` 的 `id`。运行时可通过 `task.getTaskDefinitionKey()` 获取。
+- 在设计器中的查看：选中用户任务，右侧属性面板的 `Id` 即为 `TaskDefinitionKey`。
+- 在本方案中的用途：作为 `field_extend_json` 与显式节点权限配置的"节点维度键"，用于精确到"某个节点"定义字段权限。
+
+### 8.5 流程附件与评论集成（Flowable登记 + Jeecg 文件表统一元数据）
+
+#### 8.5.1 设计原则
+- 文件实体统一落在 JeecgBoot `oss_file` 表与现有上传能力（`/sys/common/upload`）。
+- Flowable 仅登记"与流程相关"的附件与评论，以利用其原生审计、历史与回退能力。
+- 登记策略：在 Flowable Attachment 中保存 `name/description/url`，其中 `description` 或扩展字段包含 `fileId`；`url` 存 `oss_file.url`（或可访问的静态路径）。
+
+#### 8.5.2 后端接口约定（建议）
+```http
+# 1) 上传文件（沿用 Jeecg 通用接口）
+POST /sys/common/upload  ->  { fileId, url, fileName }
+
+# 2) 登记为流程附件（引用 fileId + url）
+POST /workflow/attachment
+Body: { processInstanceId | taskId, fileId, url, name?, description?, category? }
+Resp: { id, fileId, url, name, uploader, time, taskId, nodeId, category }
+
+# 3) 列出附件
+GET  /workflow/attachment?processInstanceId=... [&taskId=...]  -> [ ...附件DTO ]
+
+# 4) 删除附件（仅限"当前任务且上传者本人"）
+DELETE /workflow/attachment/{id}
+
+# 5) 新增/查询评论（可选）
+POST /workflow/comment  Body: { processInstanceId | taskId, message, type? }
+GET  /workflow/comment?processInstanceId=...  -> [ ...评论DTO ]
+```
+
+权限约束：
+- 删除：仅当"当前处于办理中的任务"且"当前用户为该附件的上传者"时允许。
+- 历史节点附件：一律只读。
+
+#### 8.5.3 前端"节点附件"面板交互
+- 当前节点：显示附件列表 + 上传按钮 + 删除图标；上传走 `/sys/common/upload`，成功后拿到 `fileId+url` 再调用 `/workflow/attachment` 完成登记。
+- 历史节点：仅显示附件列表；不展示上传、删除操作。
+- 统一穿透：点击附件打开 `url`。
+
+### 8.6 权限合成算法（Quick 版）
+步骤：
+1) 识别节点集合：`current`（当前办理任务）、`prev`（已完成）、`future`（未到达）。
+2) 载入来源：`BPMN 显式节点权限`（若已集成解析）→ `field_extend_json` → `默认策略`。
+3) 节点分类规则：
+   - prev：业务字段只读，通用字段可读；禁用上传/删除。
+   - future：隐藏。
+   - current：按优先级合并，生成最终的 `editable/readonly/hidden/required`。
+4) 应用到在线表单：为字段设置 `readonly/hidden/required`，并驱动前端渲染与校验。
+
+### 8.7 配置位置与演进路径
+- 当前阶段（快速落地）：优先使用在线表单字段的 `field_extend_json` 完成节点粒度的权限标注；后端合成生效。
+- 二期演进（可选）：在 BPMN 设计器属性面板中加入 Jeecg 的"字段权限 Provider"，将图形化权限写入 `jeecg:fieldPermissions` 扩展；部署时由 `BpmnFieldPermissionParser` 解析写入表，再与 `field_extend_json` 合并，统一由引擎输出权限结果。
+
+### 8.8 方案小结（本章新增内容）
+- 字段权限：以 `TaskDefinitionKey` 为维度，在 `field_extend_json` 标注规则；与显式配置、默认策略合并，按 `hidden > readonly > editable` 生效。
+- 附件与评论：文件落 Jeecg `oss_file`，Flowable 登记引用（`fileId+url`），充分利用历史与审计；前端提供"节点附件"面板，当前可编辑、历史只读。
+- 渐进式实施：先"Quick 版"合成与附件三接口，后续再补设计器属性 Provider，实现一体化配置体验。
+
+### 8.9 前端 Online 模块二开与调试指南（JeecgBoot Vue3）
+
+- 模块来源与动态路由
+  - Online 前端以 npm 包接入：`@jeecg/online`，在 `src/utils/monorepo/registerPackages.ts` 通过 `registerDynamicRouter(pkg.getViews)` 将包内视图动态注册到路由。
+  - 路由在 `src/router/helper/routeHelper.ts` 合并 `packageViews` 后按需懒加载，典型入口：`/online/cgformList/:id`、`/online/cgformTreeList/:id`、`/online/cgformErpList/:id`、`/online/cgformTabList/:id`、`/online/cgreport/:id`。
+
+- 开发环境访问与代理（Docker 后端 + 本地前端，推荐）
+  - 在 `jeecgboot-vue3/.env.development` 配置统一"前缀 + 代理"，避免 URL 拼接出 `undefined`：
+```ini
+VITE_PORT=3100
+VITE_PUBLIC_PATH=/
+VITE_GLOB_API_URL=
+VITE_GLOB_API_URL_PREFIX=/jeecg-boot
+VITE_PROXY = [["/jeecg-boot","http://127.0.0.1:9999"]]
+VITE_GLOB_DOMAIN_URL=http://127.0.0.1/jeecg-boot
+```
+  - 启动：`pnpm i && pnpm dev`，浏览器访问 `http://localhost:3100`；接口经代理转发到 Docker 网关 9999，无需重建前端容器（`http://localhost:80` 是容器内生产包）。
+
+- 源码定位与 Devtools 使用
+  - 在开发模式，用 Vue Devtools → Components 选中元素；若组件运行时无 `__file`，在 Console 执行：
+```js
+let i = $0.__vueParentComponent; while (i && !i.type?.__file) i = i.parent; i?.type?.__file
+```
+  - 通过动态视图映射定位：
+```js
+const { packageViews } = await import('/@/utils/monorepo/dynamicRouter.ts');
+console.table(Object.keys(packageViews).filter(k => k.includes('online/cgform')));
+```
+  - 在 Sources 中 Ctrl/Cmd+P 搜索关键字（cgform、cgreport、online）。
+
+- 二开方式（长期稳定方案）
+  - 本地 vendoring（推荐易用）：将 `@jeecg/online` 拷贝到 `jeecgboot-vue3/vendor/online`，并把 `package.json` 依赖改为：`"@jeecg/online": "link:vendor/online"`。
+  - Vite alias 优先本地源码：在 `vite.config.ts` 增加
+```ts
+{
+  find: /^@jeecg\/online\/src\//,
+  replacement: pathResolve('vendor/online/src') + '/',
+}
+```
+  - `pnpm patch` 方式（保留远端依赖，安装自动应用补丁）：
+```bash
+pnpm patch @jeecg/online@<version>
+# 在弹出的临时目录修改代码
+pnpm patch-commit -m "customize online module"
+```
+  - 只需覆盖少量视图时，可自建组件并在动态视图映射/路由装配处重定向到自定义路径。
+
+- 生产环境临时开启 Vue Devtools（仅排查用，完毕请撤回）
+  - `vite.config.ts`：
+```ts
+define: {
+  __VUE_PROD_DEVTOOLS__: isBuild,
+}
+```
+  - `src/main.ts`：
+```ts
+if (import.meta.env.PROD) app.config.devtools = true;
+```
+  - 风险：暴露调试信息、体积增大；排查完成务必关闭。
+
+- 常见问题与排查
+  - 接口 404 且 URL 带 `undefined`：同时设置了 `VITE_GLOB_API_URL` 与 `VITE_GLOB_API_URL_PREFIX` 导致重复/缺失拼接。开发期统一用"前缀 + 代理"，将 `VITE_GLOB_API_URL` 置空。
+  - Devtools 无法直达源码：部分编译组件无 `__file`；用父链脚本或 `packageViews` 定位；采用 vendoring/alias 后可直接在本地文件中断点与热更新。
+
+- 典型路由与页面入口提示
+  - 列表：`/online/cgformList/:id`
+  - 树：`/online/cgformTreeList/:id`
+  - ERP：`/online/cgformErpList/:id`
+  - Tab：`/online/cgformTabList/:id`
+  - 报表：`/online/cgreport/:id`
+
+
+整体能力评估（已达成）
+工作流配置
+已实现 ui_mode 与 ui_schema_json 的增删改查；节点表单Key绑定、字段权限批量编辑与模板动作。
+权威来源：节点表单Key以在线表单工作流Tab为准；设计器侧为"非权威同步/导入"工具。
+运行期渲染与权限
+节点字段权限合成：显式节点配置 > 字段 fieldExtendJson(workflow) > 智能默认策略。
+SPLIT 模式：UniversalFormPage + WorkflowOnlineForm；支持保存、提交、认领/释放、转办、添加意见、导出、历史与对比；从待办页"办理"解析任务后跳转精确表单。
+INTEGRATED 模式：IntegratedForm 融合页，节点扩展（NodeBlock）、附件分组、流程历史/版本对比、底部按钮组；提交时写入"表单快照"流程变量，便于比对。
+智能按钮
+后端 /workflow/onlineForm/smartButtons 输出按钮集合（含权限与状态过滤），前端 SmartButtonGroup 渲染与动作统一派发（同意/驳回/认领/释放/转办/保存/提交）。
+附件与评论
+附件：/workflow/attachment（增查删），前端 ProcessAttachments 按分组与最新任务过滤展示。
+评论：/workflow/task/{id}/comment，融合/通用页均可添加处理意见；完成任务接口同时支持 comment。
+流程历史与版本快照
+/workflow/render/history|detail|compare|compareLatest，支持 formId 标题映射；完成任务时可传 snapshot，形成历史/对比闭环。
+设计器（bpmn-js）增强
+条件设置/清除、默认流、用户任务属性、任务/执行监听器（新增与管理）、多实例/会签、服务/脚本任务、定时/事件定义、元素模板。
+"同步到BPMN/从BPMN读取"：后端提供 /workflow/definition/{id}/syncFromConfig|syncToConfig，前端按钮接通；当前写/读基于轻量正则，满足联调（可后续升级 moddle 结构化）。
+任务列表与我的待办
+列表筛选支持 processInstanceId；行内"办理"→ 解析任务入口 → 跳转 SPLIT 表单页；我的待办支持完成/委托/查看详情。
+安全与文档
+核心运行期与管理接口均补齐 Shiro @RequiresPermissions；前端按钮也有权限兜底。
+使用指南文档已补：jeecg-boot/docs/工作流在线表单集成-使用指南.md。
+后端接口覆盖（摘）
+配置：/workflow/config/uiMode、/workflow/config/uiSchema
+在线表单 × 流程：/workflow/onlineForm/form/submit|save-draft|manual-start|basic-info|smartButtons|task/resolve
+渲染/历史：/workflow/render/node|process/info|history|history/detail|history/compare|history/compareLatest
+任务：/workflow/task/my|list|{id}/complete|{id}/delegate|{id}/transfer|claim|unclaim|{id}/comment
+附件：/workflow/attachment（POST/GET/DELETE）
+设计器/定义：/workflow/definition/deploy|{id}/xml|{id}/syncFromConfig|{id}/syncToConfig
+模型：/workflow/model + 版本管理
+TODO/未完成项检索
+当前内部 TODO 列表已全部完成；未发现未收敛的 TODO。
+建议的后续增强（非必须）
+将 BPMN 同步逻辑从正则升级为 moddle 结构化读写（稳健性更优）。
+增加更多按钮策略（退回到任意节点、加签/减签、撤回）及前端UI扩展。
+更细的国际化与错误提示、审计日志、自动化测试与性能压测。
+权限对照表（前后端权限标识映射）及菜单/角色配权示例。

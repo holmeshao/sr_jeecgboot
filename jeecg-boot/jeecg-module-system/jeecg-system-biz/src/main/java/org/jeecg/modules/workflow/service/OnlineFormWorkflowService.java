@@ -298,7 +298,7 @@ public class OnlineFormWorkflowService {
          
          // 5. 如果启用版本控制，保存初始快照
          if (isVersionControlEnabled(config)) {
-             saveFormSnapshot(instance.getId(), "start", formData);
+             saveFormSnapshot(instance.getId(), "start", formData, null);
          }
         
         log.info("启动表单工作流成功: formId={}, dataId={}, processInstanceId={}", 
@@ -334,7 +334,7 @@ public class OnlineFormWorkflowService {
          
          // 4. 保存版本快照
          if (isVersionControlEnabled(config)) {
-             saveFormSnapshot(processInstanceId, nodeCode, formData);
+             saveFormSnapshot(processInstanceId, nodeCode, formData, taskId);
          }
         
         // 5. 完成任务
@@ -442,7 +442,7 @@ public class OnlineFormWorkflowService {
     /**
      * 保存表单快照
      */
-    private void saveFormSnapshot(String processInstanceId, String nodeCode, Map<String, Object> formData) {
+    private void saveFormSnapshot(String processInstanceId, String nodeCode, Map<String, Object> formData, String taskId) {
         FormSnapshot snapshot = new FormSnapshot();
         snapshot.setNodeCode(nodeCode);
         snapshot.setFormData(formData);
@@ -450,9 +450,14 @@ public class OnlineFormWorkflowService {
         snapshot.setOperator(getCurrentUser());
         snapshot.setChangedFields(calculateChangedFields(formData));
         
-        // 存储到Flowable流程变量
-        String snapshotKey = "form_snapshot_" + nodeCode;
+        // 存储到Flowable流程变量（每次提交一条快照，避免覆盖历史）
+        String uniqueKeySuffix = (taskId != null && !taskId.isEmpty()) ? taskId : String.valueOf(snapshot.getTimestamp());
+        String snapshotKey = "form_snapshot_" + nodeCode + "_" + uniqueKeySuffix;
         runtimeService.setVariable(processInstanceId, snapshotKey, JSON.toJSONString(snapshot));
+
+        // 记录该节点最近一次提交的指针，便于主视图快速定位
+        String latestPointerKey = "form_snapshot_latest_" + nodeCode;
+        runtimeService.setVariable(processInstanceId, latestPointerKey, uniqueKeySuffix);
         
         log.info("保存表单快照: processInstanceId={}, nodeCode={}", processInstanceId, nodeCode);
     }

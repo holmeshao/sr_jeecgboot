@@ -117,4 +117,17 @@ public class OnlCgformWorkflowConfigServiceImpl
             .orderByDesc(OnlCgformWorkflowConfig::getUpdateTime)
         );
     }
+
+    @Override
+    public OnlCgformWorkflowConfig getByFormAndProcessKey(String formId, String processKey) {
+        if (oConvertUtils.isEmpty(formId) || oConvertUtils.isEmpty(processKey)) {
+            return null;
+        }
+        return getOne(new LambdaQueryWrapper<OnlCgformWorkflowConfig>()
+            .eq(OnlCgformWorkflowConfig::getCgformHeadId, formId)
+            .eq(OnlCgformWorkflowConfig::getProcessDefinitionKey, processKey)
+            .eq(OnlCgformWorkflowConfig::getStatus, 1)
+            .last("limit 1")
+        );
+    }
 }

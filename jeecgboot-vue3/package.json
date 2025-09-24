@@ -26,7 +26,7 @@
     "@bpmn-io/properties-panel": "^3.25.0",
     "@iconify/iconify": "^3.1.1",
     "@jeecg/aiflow": "1.0.0",
-    "@jeecg/online": "3.7.4-beta",
+    "@jeecg/online": "link:vendor/online",
     "@logicflow/core": "^2.0.10",
     "@logicflow/extension": "^2.0.14",
     "@logicflow/vue-node-registry": "^1.0.12",

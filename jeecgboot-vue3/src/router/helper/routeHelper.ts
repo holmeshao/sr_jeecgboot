@@ -38,10 +38,14 @@ function asyncImportRoute(routes: AppRouteRecordRaw[] | undefined) {
     //菜单支持国际化翻译
     if (item?.meta?.title) {
       const { t } = useI18n();
-      if(item.meta.title.includes('t(\'') && t){
-        // update-begin--author:liaozhiyang---date:20230906---for：【QQYUN-6390】eval替换成new Function，解决build警告
-        item.meta.title = new Function('t', `return ${item.meta.title}`)(t);
-        // update-end--author:liaozhiyang---date:20230906---for：【QQYUN-6390】eval替换成new Function，解决build警告
+      if (item.meta.title.includes("t('") && t) {
+        try {
+          // update-begin--author:liaozhiyang---date:20230906---for：【QQYUN-6390】eval替换成new Function，解决build警告
+          item.meta.title = new Function('t', `return (${item.meta.title})`)(t);
+          // update-end--author:liaozhiyang---date:20230906---for：【QQYUN-6390】eval替换成new Function，解决build警告
+        } catch (e) {
+          console.warn('[route-title-eval] failed:', item.meta.title, e);
+        }
       }
     }
     // update-begin--author:sunjianlei---date:20210918---for:适配旧版路由选项 --------

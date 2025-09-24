@@ -54,6 +54,16 @@ enum Api {
   Stats = '/workflow/stats',
   StatsMyTasks = '/workflow/stats/my-tasks',
   StatsInstances = '/workflow/stats/instances',
+
+  // 附件相关
+  Attachment = '/workflow/attachment',
+  // 渲染数据
+  RenderNode = '/workflow/render/node',
+  RenderHistory = '/workflow/render/history',
+  RenderHistoryDetail = '/workflow/render/history/detail',
+  RenderHistoryCompare = '/workflow/render/history/compare',
+  RenderHistoryCompareLatest = '/workflow/render/history/compareLatest',
+  ConfigUiMode = '/workflow/config/uiMode',
 }
 
 // 流程定义相关
@@ -64,14 +74,23 @@ export const workflowDefinitionApi = {
   // 获取流程定义详情
   getDetail: (id: string) => defHttp.get({ url: `${Api.DefinitionDetail}/${id}` }),
   
-  // 部署流程定义
-  deploy: (data: any) => defHttp.post({ url: Api.DefinitionDeploy, data }),
+  // 部署流程定义（multipart/form-data）
+  deploy: (data: FormData) =>
+    defHttp.post({ url: Api.DefinitionDeploy, data, headers: { 'Content-Type': 'multipart/form-data' } }),
+
+  // 部署流程定义（JSON：xml 字符串直传）
+  deployByXml: (data: { name: string; category?: string; description?: string; xml: string }) =>
+    defHttp.post({ url: '/workflow/definition/deployByXml', data }),
   
   // 删除流程定义
   delete: (id: string) => defHttp.delete({ url: `${Api.DefinitionDetail}/${id}` }),
   
   // 获取流程定义XML
   getXml: (id: string) => defHttp.get({ url: `${Api.DefinitionXml}/${id}/xml` }),
+  // 从配置同步到BPMN（返回XML）
+  syncFromConfig: (id: string) => defHttp.post({ url: `/workflow/definition/${id}/syncFromConfig` }),
+  // 从BPMN同步到配置（回写数据库）
+  syncToConfig: (id: string) => defHttp.post({ url: `/workflow/definition/${id}/syncToConfig` }),
   
   // 挂起/激活流程定义
   toggleState: (id: string, action: 'suspend' | 'activate') => 
@@ -147,6 +166,10 @@ export const workflowTaskApi = {
   
   // 保存任务表单数据
   saveFormData: (id: string, data: any) => defHttp.put({ url: `${Api.TaskForm}/${id}/form`, data }),
+
+  // 获取任务历史（按流程实例）
+  getTaskHistory: (params: { processInstanceId: string; pageNo?: number; pageSize?: number }) =>
+    defHttp.get({ url: Api.TaskHistory, params }),
 };
 
 // 历史记录相关
@@ -186,6 +209,38 @@ export const workflowStatsApi = {
   
   // 获取流程实例统计
   getInstanceStats: (params: any) => defHttp.get({ url: Api.StatsInstances, params }),
+};
+
+// 附件相关
+export const workflowAttachmentApi = {
+  // 登记为流程附件（外链URL，description 推荐传 {fileId, category}）
+  add: (data: { taskId?: string; processInstanceId?: string; name: string; description?: string; url: string }) =>
+    defHttp.post({ url: Api.Attachment, data }),
+  // 查询流程附件（可选按任务过滤）
+  list: (params: { processInstanceId: string; taskId?: string }) =>
+    defHttp.get({ url: Api.Attachment, params }),
+  // 删除附件
+  remove: (id: string) => defHttp.delete({ url: `${Api.Attachment}/${id}` }),
+};
+
+// 渲染数据
+export const workflowRenderApi = {
+  getNodeRender: (params: { formId: string; processDefinitionKey: string; nodeId: string; processInstanceId?: string }) =>
+    defHttp.get({ url: Api.RenderNode, params }),
+  getHistory: (params: { processInstanceId: string; nodeId?: string; pageNo?: number; pageSize?: number; formId?: string }) =>
+    defHttp.get({ url: Api.RenderHistory, params }),
+  getHistoryDetail: (params: { processInstanceId: string; nodeId: string; taskId: string }) =>
+    defHttp.get({ url: Api.RenderHistoryDetail, params }),
+  compare: (params: { processInstanceId: string; nodeId: string; leftTaskId: string; rightTaskId: string; formId?: string }) =>
+    defHttp.get({ url: Api.RenderHistoryCompare, params }),
+  compareLatest: (params: { processInstanceId: string; nodeId: string; taskId: string; formId?: string }) =>
+    defHttp.get({ url: Api.RenderHistoryCompareLatest, params }),
+};
+
+// 配置查询
+export const workflowConfigApi = {
+  getUiMode: (params: { cgformHeadId: string; processDefinitionKey: string }) =>
+    defHttp.get({ url: Api.ConfigUiMode, params }),
 };
 
 // 维保工作流相关

@@ -48,4 +48,9 @@ public interface IOnlCgformWorkflowConfigService extends IService<OnlCgformWorkf
      * 获取有效的工作流配置列表
      */
     List<OnlCgformWorkflowConfig> getActiveConfigs();
+
+    /**
+     * 根据 表单ID + 流程定义Key 查询工作流配置
+     */
+    OnlCgformWorkflowConfig getByFormAndProcessKey(String formId, String processKey);
 }

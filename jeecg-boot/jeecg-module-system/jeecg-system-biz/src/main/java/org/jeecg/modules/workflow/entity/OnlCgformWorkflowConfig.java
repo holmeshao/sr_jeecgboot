@@ -115,6 +115,14 @@ public class OnlCgformWorkflowConfig implements Serializable {
     @Schema(description = "更新日期")
     private Date updateTime;
 
+    /**UI模式(SPLIT/INTEGRATED)*/
+    @Schema(description = "UI模式(SPLIT/INTEGRATED)")
+    private String uiMode;
+
+    /**融合模式节点UI Schema(JSON)*/
+    @Schema(description = "融合模式节点UI Schema(JSON)")
+    private String uiSchemaJson;
+
     // =============== 业务方法 ===============
 
     /**

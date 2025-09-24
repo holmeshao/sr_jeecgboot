@@ -1,6 +1,7 @@
 package org.jeecg.dataingest.openapi.service;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -65,6 +66,91 @@ public class OpenApiService {
                 if (response.isSuccessful() && response.body() != null) {
                     String responseBody = response.body().string();
                     return JSON.parseObject(responseBody);
+                } else {
+                    log.error("API请求失败: {} - {}", response.code(), response.message());
+                    return null;
+                }
+            }
+        } catch (Exception e) {
+            log.error("执行API请求失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 执行API请求，期望返回JSONArray
+     */
+    public JSONArray executeApiRequestForArray(ApiRequest request) {
+        try {
+            Request.Builder requestBuilder = new Request.Builder()
+                    .url(request.getUrl());
+
+            if (request.getHeaders() != null) {
+                for (Map.Entry<String, String> header : request.getHeaders().entrySet()) {
+                    requestBuilder.addHeader(header.getKey(), header.getValue());
+                }
+            }
+
+            if ("GET".equalsIgnoreCase(request.getMethod())) {
+                requestBuilder.get();
+            } else if ("POST".equalsIgnoreCase(request.getMethod())) {
+                RequestBody body = buildRequestBody(request);
+                requestBuilder.post(body);
+            } else if ("PUT".equalsIgnoreCase(request.getMethod())) {
+                RequestBody body = buildRequestBody(request);
+                requestBuilder.put(body);
+            } else if ("DELETE".equalsIgnoreCase(request.getMethod())) {
+                requestBuilder.delete();
+            }
+
+            Request httpRequest = requestBuilder.build();
+
+            try (Response response = httpClient.newCall(httpRequest).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    String responseBody = response.body().string();
+                    return JSON.parseArray(responseBody);
+                } else {
+                    log.error("API请求失败: {} - {}", response.code(), response.message());
+                    return null;
+                }
+            }
+        } catch (Exception e) {
+            log.error("执行API请求失败", e);
+            return null;
+        }
+    }
+
+    /**
+     * 执行API请求，返回原始字符串
+     */
+    public String executeRaw(ApiRequest request) {
+        try {
+            Request.Builder requestBuilder = new Request.Builder()
+                    .url(request.getUrl());
+
+            if (request.getHeaders() != null) {
+                for (Map.Entry<String, String> header : request.getHeaders().entrySet()) {
+                    requestBuilder.addHeader(header.getKey(), header.getValue());
+                }
+            }
+
+            if ("GET".equalsIgnoreCase(request.getMethod())) {
+                requestBuilder.get();
+            } else if ("POST".equalsIgnoreCase(request.getMethod())) {
+                RequestBody body = buildRequestBody(request);
+                requestBuilder.post(body);
+            } else if ("PUT".equalsIgnoreCase(request.getMethod())) {
+                RequestBody body = buildRequestBody(request);
+                requestBuilder.put(body);
+            } else if ("DELETE".equalsIgnoreCase(request.getMethod())) {
+                requestBuilder.delete();
+            }
+
+            Request httpRequest = requestBuilder.build();
+
+            try (Response response = httpClient.newCall(httpRequest).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    return response.body().string();
                 } else {
                     log.error("API请求失败: {} - {}", response.code(), response.message());
                     return null;

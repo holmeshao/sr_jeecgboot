@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  nifi:
+    image: apache/nifi:1.25.0
+    container_name: nifi
+    environment:
+      - NIFI_WEB_HTTP_PORT=8080
+      - NIFI_WEB_PROXY_HOST=${NIFI_PROXY_HOST:-localhost}
+      - SINGLE_USER_CREDENTIALS_USERNAME=${NIFI_USER:-admin}
+      - SINGLE_USER_CREDENTIALS_PASSWORD=${NIFI_PASS:-admin123}
+    volumes:
+      - /opt/docker/nifi/database_repository:/opt/nifi/nifi-current/database_repository
+      - /opt/docker/nifi/flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - /opt/docker/nifi/content_repository:/opt/nifi/nifi-current/content_repository
+      - /opt/docker/nifi/provenance_repository:/opt/nifi/nifi-current/provenance_repository
+      - /opt/docker/nifi/logs:/opt/nifi/nifi-current/logs
+      - /opt/docker/nifi/extensions:/opt/nifi/nifi-current/extensions
+      - /opt/docker/nifi/conf:/opt/nifi/nifi-current/conf
+      - /opt/docker/nifi/state:/opt/nifi/nifi-current/state
+    networks:
+      - nifi_net
+
+  nginx:
+    image: nginx:stable
+    container_name: nifi-nginx
+    depends_on:
+      - nifi
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - NIFI_PROXY_HOST=${NIFI_PROXY_HOST:-localhost}
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - nifi_net
+
+networks:
+  nifi_net:
+    name: nifi_net
+
+
