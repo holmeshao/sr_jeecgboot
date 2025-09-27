@@ -185,23 +185,10 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         
-        <!-- Redisson分布式锁 -->
+        <!-- Redisson 分布式锁（仅核心包，避免干扰 Spring Data Redis 自动装配） -->
         <dependency>
             <groupId>org.redisson</groupId>
-            <artifactId>redisson-spring-boot-starter</artifactId>
-            <version>3.24.3</version>
-            <!-- 修复与 Spring Data Redis 2.7.x 版本适配的问题，排除默认引入的 3.1 适配包 -->
-            <exclusions>
-                <exclusion>
-                    <groupId>org.redisson</groupId>
-                    <artifactId>redisson-spring-data-31</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- 适配 Spring Data Redis 2.7.x 的 Redisson 实现 -->
-        <dependency>
-            <groupId>org.redisson</groupId>
-            <artifactId>redisson-spring-data-27</artifactId>
+            <artifactId>redisson</artifactId>
             <version>3.24.3</version>
         </dependency>
 

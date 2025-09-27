@@ -41,9 +41,10 @@ public class D6CApiService {
                 req.setContentType("application/json");
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Accept", "application/json");
-                headers.put("User-Agent", "JeecgBoot-DataIngest/1.0");
+                //headers.put("User-Agent", "JeecgBoot-DataIngest/1.0");
                 req.setHeaders(headers);
                 req.setBody(payload);
+
                 String resp = openApiService.executeRaw(req);
                 log.info("推送D6C完成 method={}, records={}, respLen={}", method, data.size(), resp == null ? 0 : resp.length());
             } catch (Exception e) {

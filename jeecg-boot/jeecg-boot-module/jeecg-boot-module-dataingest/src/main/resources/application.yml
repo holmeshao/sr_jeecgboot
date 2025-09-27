@@ -91,6 +91,8 @@ spring:
     port: 6379
     password:
     timeout: 3000ms
+    # 指定客户端为 Lettuce，确保与 Spring Boot 2.7 配套
+    client-type: lettuce
     lettuce:
       pool:
         max-active: 20
@@ -135,6 +137,9 @@ jeecg:
     password:
     type: STANDALONE
     enabled: true
+  # Shiro 放行白名单
+  shiro:
+    excludeUrls: /dataingest/health/**,/dataingest/actuator/**,/dataingest/swagger-ui/**,/dataingest/v3/api-docs/**
 
 # Debezium配置
 org-jeecg-dataingest-debezium:
@@ -207,10 +212,10 @@ org-jeecg-dataingest-kingdee:
 xxl:
   job:
     # 调度中心地址：根据你的环境修改为可达地址（本机示例）
-    admin-addresses: http://localhost:9080/xxl-job-admin
+    admin-addresses: http://jeecg-boot-xxljob:9080/xxl-job-admin
     # 执行器名称：需与调度中心执行器分组一致
     appname: data-ingest-executor
-    address: 
+    address: http://host.docker.internal:10099
     ip: 
     port: 10099
     log-path: /data/applogs/xxl-job/jobhandler
@@ -225,6 +230,8 @@ logging:
     io.debezium: INFO
     com.alibaba.nacos: DEBUG
     com.alibaba.cloud.nacos: DEBUG
+    # SQL日志级别（来自 application-dataingest.yml）
+    org.jeecg.common.util.SqlInjectionUtil: INFO
   file:
     name: logs/dataingest.log
   pattern:
@@ -249,6 +256,8 @@ management:
       prometheus:
         enabled: true
 
+# Jeecg 通用配置（通过 yml 管理 Shiro 放行白名单，已合并至上方 jeecg 节点）
+
 # 项目人员信息集成配置（由 application-dataingest.yml 合并而来）
 projectworker:
   yichangApi:
@@ -256,8 +265,10 @@ projectworker:
     personPath: /labor/externalCall/person
     enablePhotoEnrich: false
   d6cApi:
-    gateway: https://d6cnext.haolink.cn/
+    gateway: https://d6cnext.haolink.cn/dcs/biz/openapi/openApi/post
+    supplier: NEWGRAND
     method:
+      companyBasic: Corp.Upload
       company: ProjectCorp.Upload
       team: ProjectTeam.Upload
       personBasic: ProjectWorker.Upload

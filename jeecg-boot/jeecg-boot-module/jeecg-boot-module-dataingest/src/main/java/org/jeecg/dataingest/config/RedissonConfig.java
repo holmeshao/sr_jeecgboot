@@ -4,6 +4,8 @@ import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * @author jeecg-boot
  */
 @Configuration
+@ConditionalOnProperty(prefix = "jeecg.redisson", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class RedissonConfig {
 
     @Value("${jeecg.redisson.address}")
@@ -26,6 +29,7 @@ public class RedissonConfig {
     private String type;
 
     @Bean
+    @ConditionalOnMissingBean(RedissonClient.class)
     public RedissonClient redissonClient() {
         Config config = new Config();
         

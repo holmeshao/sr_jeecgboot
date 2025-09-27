@@ -51,18 +51,30 @@ public class ProjectWorkerSyncService {
      * @return 同步结果
      */
     public SyncResult sync(String engId, String code) {
-        // 如未传 code，则尝试根据 engId 从注册表获取
-        if (isBlank(code)) {
+        return sync(engId, code, null);
+    }
+
+    /**
+     * 同步工地项目人员信息，支持传入参数级覆盖（appkey/appSecret/code 等）
+     */
+    public SyncResult sync(String engId, String code, ProjectWorkerIntegrationProperties.Project override) {
+        // 计算有效 code：优先 override.code -> 入参 code -> 注册表
+        String effectiveCode = null;
+        if (override != null && !isBlank(override.getCode())) {
+            effectiveCode = override.getCode();
+        } else if (!isBlank(code)) {
+            effectiveCode = code;
+        } else {
             try {
                 Optional<ProjectWorkerIntegrationProperties.Project> p = projectRegistry.findByEngId(engId);
                 if (p.isPresent()) {
-                    code = nvl(p.get().getCode());
+                    effectiveCode = nvl(p.get().getCode());
                 }
             } catch (Exception ignore) {}
         }
-        
+
         // 从宜昌实名制平台系统获取人员数据
-        JSONArray persons = fetchPersons(engId, code);
+        JSONArray persons = fetchPersons(engId, effectiveCode);
         if (persons == null) {
             throw new IllegalStateException("宜昌实名制平台系统接口无数据或请求失败");
         }
@@ -74,9 +86,10 @@ public class ProjectWorkerSyncService {
         List<Map<String, Object>> companyList = processCompanyData(persons);
 
         // 生成公共属性（签名等）
-        Map<String, String> envelopeCommon = generateCommonAttributes(engId);
+        Map<String, String> envelopeCommon = generateCommonAttributes(engId, override);
 
         // 推送到D6C系统
+        postToD6C(props.getD6cApi().getMethod().getCompanyBasic(), companyList, envelopeCommon);
         postToD6C(props.getD6cApi().getMethod().getCompany(), companyList, envelopeCommon);
         postToD6C(props.getD6cApi().getMethod().getTeam(), teamList, envelopeCommon);
         postToD6C(props.getD6cApi().getMethod().getPersonBasic(), personBasicList, envelopeCommon);
@@ -102,13 +115,13 @@ public class ProjectWorkerSyncService {
      */
     private JSONArray fetchPersons(String engId, String code) {
         String url = props.getYichangApi().getBase() + props.getYichangApi().getPersonPath() + "?engId="
-                + urlEncode(engId) + "&code=" + urlEncode(code);
+                + engId + "&code=" + code;
         ApiRequest req = new ApiRequest();
         req.setUrl(url);
         req.setMethod("GET");
         Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
-        headers.put("User-Agent", "JeecgBoot-DataIngest/1.0");
+        //headers.put("User-Agent", "JeecgBoot-DataIngest/1.0");
         req.setHeaders(headers);
         return openApiService.executeApiRequestForArray(req);
     }
@@ -124,17 +137,25 @@ public class ProjectWorkerSyncService {
     /**
      * 生成公共属性（签名等）
      */
-    private Map<String, String> generateCommonAttributes(String engId) {
+    private Map<String, String> generateCommonAttributes(String engId, ProjectWorkerIntegrationProperties.Project override) {
         String appKey = null;
         String appSecret = null;
         String supplier = props.getD6cApi().getSupplier();
 
-        // 优先取项目级的 appkey/appSecret
-        Optional<ProjectWorkerIntegrationProperties.Project> opt = projectRegistry.snapshotByEngId(engId);
-        if (opt.isPresent()) {
-            ProjectWorkerIntegrationProperties.Project p = opt.get();
-            appKey = nvl(p.getAppkey());
-            appSecret = nvl(p.getAppSecret());
+        // 优先使用 override 的 appkey/appSecret
+        if (override != null) {
+            if (!isBlank(override.getAppkey())) { appKey = nvl(override.getAppkey()); }
+            if (!isBlank(override.getAppSecret())) { appSecret = nvl(override.getAppSecret()); }
+        }
+
+        // 其次取注册表中项目级的 appkey/appSecret（若 override 未提供）
+        if (isBlank(appKey) || isBlank(appSecret)) {
+            Optional<ProjectWorkerIntegrationProperties.Project> opt = projectRegistry.snapshotByEngId(engId);
+            if (opt.isPresent()) {
+                ProjectWorkerIntegrationProperties.Project p = opt.get();
+                if (isBlank(appKey)) { appKey = nvl(p.getAppkey()); }
+                if (isBlank(appSecret)) { appSecret = nvl(p.getAppSecret()); }
+            }
         }
         // 兜底全局配置
         if (isBlank(appKey)) appKey = nvl(props.getD6cApi().getAppKey());
@@ -163,9 +184,11 @@ public class ProjectWorkerSyncService {
         for (int i = 0; i < persons.size(); i++) {
             JSONObject p = persons.getJSONObject(i);
             String teamName = toStr(p.get("team"));
-            if (!isBlank(teamName)) {
-                teamMap.computeIfAbsent(teamName, k -> new ArrayList<>()).add(p);
+            if( isBlank(teamName) ){
+                teamName = props.getDefaults().getDefaultTeamName();
             }
+
+            teamMap.computeIfAbsent(teamName, k -> new ArrayList<>()).add(p);
         }
         
         List<Map<String, Object>> list = new ArrayList<>();
@@ -192,7 +215,7 @@ public class ProjectWorkerSyncService {
             String teamCode = String.valueOf(teamName.hashCode()) + "_" + nvl(engId);
 
             Map<String, Object> m = new LinkedHashMap<>();
-            putIfNotBlank(m, "externalId", toStr(first.get("id")));
+            //putIfNotBlank(m, "externalId", toStr(first.get("id")));
             m.put("teamCode", teamCode);
             m.put("teamName", teamName);
             
@@ -203,7 +226,7 @@ public class ProjectWorkerSyncService {
             putIfNotBlank(m, "corpCode", corpCode);
             putIfNotBlank(m, "corpName", organName);
             putIfNotBlank(m, "corpType", corpType);
-            m.put("teamType", isBlank(teamName) ? "410002" : "410001");
+            m.put("teamType", isBlank(teamName) || props.getDefaults().getDefaultTeamName().equals(teamName) ? "2" : "1");
             putIfNotBlank(m, "workType", ProjectWorkerProjectRegistry.getWorkTypeForToD6C(workType));
             putIfNotBlank(m, "leaderName", leaderName);
             putIfNotBlank(m, "cardNo", cardNo);
@@ -223,13 +246,16 @@ public class ProjectWorkerSyncService {
         for (int i = 0; i < persons.size(); i++) {
             JSONObject p = persons.getJSONObject(i);
             String teamName = toStr(p.get("team"));
+            if( isBlank(teamName) ){
+                teamName = props.getDefaults().getDefaultTeamName();
+            }
             String engId = toStr(p.get("engId"));
             String organName = toStr(p.get("organName"));
             String isHeadMan = toStr(p.get("isHeadMan"));
             String teamCode = (teamName != null ? String.valueOf(teamName.hashCode()) : "") + "_" + nvl(engId);
             
             Map<String, Object> m = new LinkedHashMap<>();
-            put(m, "externalId", toStr(p.get("id")));
+            //put(m, "externalId", toStr(p.get("id")));
             m.put("status", 1);
             put(m, "idCardNumber", toStr(p.get("idCardNumber")));
             put(m, "workerName", toStr(p.get("name")));
@@ -285,16 +311,16 @@ public class ProjectWorkerSyncService {
                     cellPhone = toStr(p.get("mobilePhone"));
                 }
                 if (isBlank(cellPhone)) {
-                    cellPhone = "";
+                    cellPhone = props.getDefaults().getDefaultCellPhone();
                 }
             }
 
             // 校验必填字段（含你列出的新增必填）
-            String address = toStringOrDefault(p, "address", "");
-            String birthPlace = toStringOrDefault(p, "birthPlace", "");
+            String address = toStringOrDefault(p, "address", props.getDefaults().getDefaultAddress());
+            String birthPlace = toStringOrDefault(p, "birthPlace", props.getDefaults().getDefaultbirthPlace());
             // 带默认值示例：nation 默认 "02"
             String nation = toStringOrDefault(p, "nation", "02");
-            String grantOrg = toStringOrDefault(p, "grantOrg", "");
+            String grantOrg = toStringOrDefault(p, "grantOrg", props.getDefaults().getDefaultGrantOrg());
             String cardStartDate = toStringOrDefault(p, "cardStartDate", "");
             String cardExpiryDate = toStringOrDefault(p, "cardExpiryDate", "");
             // 头像策略：默认使用配置的Base64；当开启A系统照片补充时尝试抓取
@@ -319,7 +345,7 @@ public class ProjectWorkerSyncService {
             // 使用有序Map，严格保证字段输出顺序（仅传非空字段）
             Map<String, Object> basic = new LinkedHashMap<>();
             // 顺序：externalId, idCardNumber, workerName, workerCode, cellPhone
-            put(basic, "externalId", externalId);
+            //put(basic, "externalId", externalId);
             basic.put("idCardNumber", idCardNumber);
             basic.put("workerName", workerName);
             put(basic, "workerCode", workerCode);
@@ -421,7 +447,7 @@ public class ProjectWorkerSyncService {
             if (isBlank(externalId)) {
                 externalId = toStr(p.get("corpExternalId"));
             }
-            put(company, "externalId", externalId);
+            //put(company, "externalId", externalId);
             put(company, "corpCode", corpCode);
             put(company, "corpName", organName);
             put(company, "corpType", corpType);

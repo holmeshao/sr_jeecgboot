@@ -14,7 +14,7 @@ import org.springframework.data.redis.core.RedisTemplate;
  * @author jeecg-boot
  * @date: 2025-01-01
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"org.jeecg"})
 @EnableFeignClients(basePackages = {"org.jeecg"})
 public class JeecgDataIngestApplication implements CommandLineRunner {
     
@@ -24,6 +24,7 @@ public class JeecgDataIngestApplication implements CommandLineRunner {
     public static void main(String[] args) {
         SpringApplication.run(JeecgDataIngestApplication.class, args);
     }
+
 
     /**
      * 启动的时候，触发下gateway网关刷新

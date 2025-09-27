@@ -139,7 +139,7 @@ public class ProjectWorkerProjectRegistry {
     static {
         // —— 管理岗 ——
         WORKTYPE_RULES.add(new WorkTypeRule("909", "业主管理人员", "业主管理"));
-        WORKTYPE_RULES.add(new WorkTypeRule("908", "管理人员"));
+        WORKTYPE_RULES.add(new WorkTypeRule("908", "管理人员","管理⼈员班组"));
         WORKTYPE_RULES.add(new WorkTypeRule("910", "资料员"));
         WORKTYPE_RULES.add(new WorkTypeRule("911", "专职安全员"));
         WORKTYPE_RULES.add(new WorkTypeRule("913", "安全员"));
@@ -342,6 +342,29 @@ public class ProjectWorkerProjectRegistry {
     }
 
     /**
+     * 返回所有项目的不可变快照列表
+     */
+    public java.util.List<ProjectWorkerIntegrationProperties.Project> listAllProjects() {
+        registryLock.readLock().lock();
+        try {
+            if (byEngId.isEmpty()) { return java.util.Collections.emptyList(); }
+            java.util.List<ProjectWorkerIntegrationProperties.Project> list = new java.util.ArrayList<>(byEngId.size());
+            for (ProjectWorkerIntegrationProperties.Project p : byEngId.values()) {
+                ProjectWorkerIntegrationProperties.Project copy = new ProjectWorkerIntegrationProperties.Project();
+                copy.setEngId(p.getEngId());
+                copy.setCode(p.getCode());
+                copy.setAppkey(p.getAppkey());
+                copy.setAppSecret(p.getAppSecret());
+                copy.setProjectName(p.getProjectName());
+                list.add(copy);
+            }
+            return java.util.Collections.unmodifiableList(list);
+        } finally {
+            registryLock.readLock().unlock();
+        }
+    }
+
+    /**
      * 返回指定 engId 的项目快照（独立副本），用于一次同步过程中的一致性读取
      */
     public Optional<ProjectWorkerIntegrationProperties.Project> snapshotByEngId(String engId) {
@@ -349,6 +372,33 @@ public class ProjectWorkerProjectRegistry {
         try {
             ProjectWorkerIntegrationProperties.Project p = byEngId.get(engId);
             if (p == null) { return Optional.empty(); }
+            ProjectWorkerIntegrationProperties.Project copy = new ProjectWorkerIntegrationProperties.Project();
+            copy.setEngId(p.getEngId());
+            copy.setCode(p.getCode());
+            copy.setAppkey(p.getAppkey());
+            copy.setAppSecret(p.getAppSecret());
+            copy.setProjectName(p.getProjectName());
+            return Optional.of(copy);
+        } finally {
+            registryLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * 基于 engId + code 做唯一性判断后返回项目快照。
+     * 当 code 为空时，仅基于 engId 返回；当 code 非空但与注册表不一致时，返回 empty。
+     */
+    public Optional<ProjectWorkerIntegrationProperties.Project> snapshotByEngIdAndCode(String engId, String code) {
+        registryLock.readLock().lock();
+        try {
+            ProjectWorkerIntegrationProperties.Project p = byEngId.get(engId);
+            if (p == null) { return Optional.empty(); }
+            if (code != null && !code.trim().isEmpty()) {
+                String c = p.getCode();
+                if (c == null || !c.equals(code)) {
+                    return Optional.empty();
+                }
+            }
             ProjectWorkerIntegrationProperties.Project copy = new ProjectWorkerIntegrationProperties.Project();
             copy.setEngId(p.getEngId());
             copy.setCode(p.getCode());
