@@ -263,9 +263,11 @@ projectworker:
   yichangApi:
     base: https://zhcjsmz.sanxiacloud.com
     personPath: /labor/externalCall/person
+    attendancePath: /laboratt/attendance/page/
     enablePhotoEnrich: false
   d6cApi:
-    gateway: https://d6cnext.haolink.cn/dcs/biz/openapi/openApi/post
+    #gateway: https://d6cnext.haolink.cn/dcs/biz/openapi/openApi/post
+    gateway: https://d6ctest.haolinkserver.cn/dcs/biz/openapi/openApi/post
     supplier: NEWGRAND
     method:
       companyBasic: Corp.Upload
@@ -273,6 +275,24 @@ projectworker:
       team: ProjectTeam.Upload
       personBasic: ProjectWorker.Upload
       person: ProjectWorkerEntryExit.Upload
+      attendance: ProjectWorkerAttendance.Upload
+  attendance:
+    enableIndexScan: true
+    enableCascadeAfterWorkerSync: false
+    dropUnknownEngId: true
+    pageSize: 200
+    maxPagesPerDay: 100
+    concurrentFetch: 8
+    concurrentPost: 4
+    requestTimeoutMs: 10000
+    retryMaxAttempts: 3
+    retryBackoffMs: 300
+    qpsLimitYichang: 0
+    qpsLimitD6c: 0
+    maxPostBatchSize: 0
+    cache:
+      resolveTtlDays: 7
+      candidateTtlHours: 24
   projectConfig:
     # 外部 JSON 路径。支持前缀: classpath:/ 与 file:/
     # 示例：PROJECTWORKER_PROJECTS_PATH=file:/etc/jeecg/dataingest/projectworker/project-projects.json

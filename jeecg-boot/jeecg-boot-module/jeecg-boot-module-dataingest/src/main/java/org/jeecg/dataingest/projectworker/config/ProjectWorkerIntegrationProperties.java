@@ -21,6 +21,7 @@ public class ProjectWorkerIntegrationProperties {
     private D6CApi d6cApi = new D6CApi();
     private Defaults defaults = new Defaults();
     private ProjectConfig projectConfig = new ProjectConfig();
+    private Attendance attendance = new Attendance();
 
     /**
      * 宜昌实名制平台系统API配置
@@ -29,6 +30,7 @@ public class ProjectWorkerIntegrationProperties {
     public static class YichangApi {
         private String base = "https://zhcjsmz.sanxiacloud.com";
         private String personPath = "/labor/externalCall/person";
+        private String attendancePath = "/laboratt/attendance/page/";
         // 可选：人员照片与人脸特征接口路径（若未提供则不启用照片补充）
         private String photoPath;
         // 是否启用从A系统补充人脸与证件头像（默认关闭，仍使用默认Base64图片）
@@ -54,6 +56,7 @@ public class ProjectWorkerIntegrationProperties {
             private String team = "ProjectTeam.Upload";
             private String personBasic = "ProjectWorker.Upload";
             private String person = "ProjectWorkerEntryExit.Upload";
+            private String attendance = "ProjectWorkerAttendance.Upload";
         }
     }
 
@@ -98,6 +101,53 @@ public class ProjectWorkerIntegrationProperties {
         private String jsonPath; // e.g. classpath:projectworker/project-projects.json or file:/etc/jeecg/project-projects.json
         private List<Project> items;
         private Nacos nacos = new Nacos();
+    }
+
+    /**
+     * 考勤同步配置
+     */
+    @Data
+    public static class Attendance {
+        /** 是否启用“按日期全量索引”流程（不带身份证分页扫描） */
+        private boolean enableIndexScan = true;
+        /** 是否在人员同步后级联触发考勤同步（默认关闭，推荐独立调度） */
+        private boolean enableCascadeAfterWorkerSync = false;
+        /** 对于索引返回且归属未知/未注册的 engId 是否丢弃 */
+        private boolean dropUnknownEngId = true;
+
+        /** 分页大小（limit） */
+        private int pageSize = 200;
+        /** 单日最大分页数（保护性上限） */
+        private int maxPagesPerDay = 100;
+
+        /** 按人精准拉取的并发数 */
+        private int concurrentFetch = 8;
+        /** 推送到 D6C 的并发数 */
+        private int concurrentPost = 4;
+
+        /** 请求超时（毫秒） */
+        private int requestTimeoutMs = 10000;
+        /** 最大重试次数 */
+        private int retryMaxAttempts = 3;
+        /** 重试退避（毫秒） */
+        private int retryBackoffMs = 300;
+
+        /** 宜昌与D6C的QPS软限流（0或负数表示不限制） */
+        private int qpsLimitYichang = 0;
+        private int qpsLimitD6c = 0;
+
+        /** 单次推送最大条数（>0 则分片推送） */
+        private int maxPostBatchSize = 0;
+
+        private Cache cache = new Cache();
+
+        @Data
+        public static class Cache {
+            /** 强键解析缓存（天） */
+            private int resolveTtlDays = 7;
+            /** 候选集合缓存（小时） */
+            private int candidateTtlHours = 24;
+        }
     }
 
     /**

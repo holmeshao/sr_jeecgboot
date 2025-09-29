@@ -34,6 +34,8 @@ public class ProjectWorkerSyncService {
     private final ProjectWorkerIntegrationProperties props;
     private final ProjectWorkerProjectRegistry projectRegistry;
     private final D6CApiService d6cApiService;
+    private final ProjectWorkerAttendanceSyncService attendanceSyncService;
+    private final RedisPersonIndexCache personIndexCache;
 
     @Data
     public static class SyncResult {
@@ -94,8 +96,64 @@ public class ProjectWorkerSyncService {
         postToD6C(props.getD6cApi().getMethod().getTeam(), teamList, envelopeCommon);
         postToD6C(props.getD6cApi().getMethod().getPersonBasic(), personBasicList, envelopeCommon);
         postToD6C(props.getD6cApi().getMethod().getPerson(), personTeamList, envelopeCommon);
-        
-        
+
+        // 在推送人员后，建立本地人员索引缓存（用于考勤解析加速）
+        try {
+            int ttlDays = Math.max(1, props.getAttendance().getCache().getResolveTtlDays());
+            List<JSONObject> personList = new ArrayList<>();
+            for (int i = 0; i < persons.size(); i++) { personList.add(persons.getJSONObject(i)); }
+            personIndexCache.indexPersons(engId, personList, ttlDays);
+        } catch (Exception e) {
+            log.warn("索引人员缓存失败 engId={} err={}", engId, e.getMessage());
+        }
+
+        // 在推送人员后，按配置决定是否级联触发考勤同步
+        try {
+            if (props.getAttendance() != null && props.getAttendance().isEnableCascadeAfterWorkerSync()) {
+                String today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_DATE);
+                String effectiveCodeForAttendance = effectiveCode;
+
+                if (props.getAttendance().isEnableIndexScan()) {
+                    // 走“按日期索引”模式（不逐人拉取）
+                    ProjectWorkerAttendanceSyncService.SyncResult ar = attendanceSyncService.syncByDateIndex(engId, effectiveCodeForAttendance, "2025-09-27");
+                    log.info("按日期索引触发考勤同步完成：date={}, pushed={}", today, ar == null ? 0 : ar.getPushed());
+                } else {
+                    // 逐人同步，使用受限并发
+                    LinkedHashSet<String> uniqueIdCards = new LinkedHashSet<>();
+                    for (int i = 0; i < persons.size(); i++) {
+                        JSONObject p = persons.getJSONObject(i);
+                        String idCard = toStr(p.get("idCardNumber"));
+                        if (!isBlank(idCard)) {
+                            uniqueIdCards.add(idCard);
+                        }
+                    }
+                    int poolSize = Math.max(1, props.getAttendance().getConcurrentFetch());
+                    java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(poolSize);
+                    java.util.List<java.util.concurrent.Future<Integer>> futures = new java.util.ArrayList<>();
+                    for (String id : uniqueIdCards) {
+                        futures.add(pool.submit(() -> {
+                            try {
+                                ProjectWorkerAttendanceSyncService.SyncResult ar = attendanceSyncService.sync(engId, effectiveCodeForAttendance, id, null);
+                                return ar == null ? 0 : ar.getPushed();
+                            } catch (Exception ex) {
+                                log.warn("考勤同步失败 idCard={} err={}", id, ex.getMessage());
+                                return 0;
+                            }
+                        }));
+                    }
+                    pool.shutdown();
+                    int pushedSum = 0;
+                    for (java.util.concurrent.Future<Integer> f : futures) {
+                        try { pushedSum += f.get(); } catch (Exception ignore) {}
+                    }
+                    log.info("逐人触发考勤同步完成：共{}人，总推送条数={}", uniqueIdCards.size(), pushedSum);
+                }
+            } else {
+                log.info("已关闭人员同步后的考勤级联触发（projectworker.attendance.enableCascadeAfterWorkerSync=false）");
+            }
+        } catch (Exception e) {
+            log.warn("触发考勤同步流程时发生异常：{}", e.getMessage());
+        }
 
         SyncResult r = new SyncResult();
         r.setFetched(persons.size());
@@ -274,7 +332,7 @@ public class ProjectWorkerSyncService {
             m.put("measureUnit", "02");
             m.put("unitPrice", 300.0);
             m.put("isTeamLeader", "是".equals(isHeadMan) ? 1 : 0);
-            m.put("entryExitTime", nowFormatted());
+            m.put("entryExitTime", "2022-04-19 13:50:20");
             list.add(m);
         }
         return list;
