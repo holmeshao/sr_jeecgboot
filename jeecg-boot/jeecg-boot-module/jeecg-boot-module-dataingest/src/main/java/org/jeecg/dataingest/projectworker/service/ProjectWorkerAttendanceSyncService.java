@@ -48,6 +48,45 @@ public class ProjectWorkerAttendanceSyncService {
     }
 
     /**
+     * 载荷及元信息，用于重复冲突时优先“劳务身份”（team 非空）。
+     */
+    private static class PayloadWithMeta {
+        final Map<String, Object> payload;
+        final boolean laborIdentity;
+
+        private PayloadWithMeta(Map<String, Object> payload, boolean laborIdentity) {
+            this.payload = payload;
+            this.laborIdentity = laborIdentity;
+        }
+    }
+
+    /**
+     * 将一条考勤（已映射为 D6C 载荷）按 (idCardNumber, workerName, attendTime) 在 engId 维度去重；
+     * 当发生冲突时，优先保留 laborIdentity=true（team 非空）的记录。
+     */
+    private void addAttendanceWithDedup(Map<String, LinkedHashMap<String, PayloadWithMeta>> byEngId,
+                                        String engId,
+                                        String idCardNumber,
+                                        String workerName,
+                                        String attendTime,
+                                        boolean laborIdentity,
+                                        Map<String, Object> payload) {
+        if (isBlank(engId) || isBlank(idCardNumber) || isBlank(attendTime)) { return; }
+        String normName = nvl(workerName).trim();
+        String key = idCardNumber + "|" + normName + "|" + attendTime;
+        LinkedHashMap<String, PayloadWithMeta> dedup = byEngId.computeIfAbsent(engId, k -> new LinkedHashMap<>());
+        PayloadWithMeta exists = dedup.get(key);
+        if (exists == null) {
+            dedup.put(key, new PayloadWithMeta(payload, laborIdentity));
+            return;
+        }
+        // 若已存在为管理身份（非劳务），当前为劳务，则进行替换；否则保持已存在
+        if (!exists.laborIdentity && laborIdentity) {
+            dedup.put(key, new PayloadWithMeta(payload, true));
+        }
+    }
+
+    /**
      * 同步指定人员某天的考勤
      */
     public SyncResult sync(String engId, String code, String idCardNumber, String verifyDate) {
@@ -127,8 +166,8 @@ public class ProjectWorkerAttendanceSyncService {
         int pageSize = Math.max(1, props.getAttendance().getPageSize());
         int maxPages = Math.max(1, props.getAttendance().getMaxPagesPerDay());
 
-        // 分 engId 聚合，确保签名使用正确项目凭证
-        Map<String, List<Map<String, Object>>> engIdToPayload = new LinkedHashMap<>();
+        // 分 engId 聚合（去重层）：key = idCardNumber|workerName|attendTime
+        Map<String, LinkedHashMap<String, PayloadWithMeta>> byEngIdDedup = new LinkedHashMap<>();
         // 单次调用期间，按 engId 缓存人员清单，避免对人员接口的重复请求
         Map<String, List<JSONObject>> personCacheByEngId = new HashMap<>();
         // 单次调用期间，缓存按身份证(明文)+engId+date 的精确查询结果，避免重复请求
@@ -149,7 +188,6 @@ public class ProjectWorkerAttendanceSyncService {
                 String masked = toStr(rec.get("idCardShow"));
                 String name = toStr(rec.get("name"));
                 String actualEngId = toStr(rec.get("engId"));
-
                 // 规则：仅使用记录中的实际 engId，缺失则跳过
                 if (isBlank(actualEngId)) { continue; }
                 // 当开启 dropUnknownEngId 时，若记录中的 engId 未在注册表中配置，则直接跳过
@@ -224,11 +262,18 @@ public class ProjectWorkerAttendanceSyncService {
                                 if (precise != null && !precise.isEmpty()) {
                                     // 回写解析缓存
                                     safeWriteBackFromPrecise(actualEngId, real, precise);
-                                    // 转为 D6C 负载并累加（去重）
+                                    // 转为 D6C 载荷并累加（同一去重器，劳务优先）
                                     if (preciseAdded.add(key)) {
-                                        List<Map<String, Object>> list = mapToD6CAttendance(precise, real);
-                                        if (list != null && !list.isEmpty()) {
-                                            engIdToPayload.computeIfAbsent(actualEngId, k -> new ArrayList<>()).addAll(list);
+                                        for (int pi = 0; pi < precise.size(); pi++) {
+                                            JSONObject prec = precise.getJSONObject(pi);
+                                            Map<String, Object> mapped = mapSingleAttendanceToD6C(prec, real);
+                                            if (!mapped.isEmpty()) {
+                                                String workerName2 = toStr(prec.get("workerName"));
+                                                if (isBlank(workerName2)) { workerName2 = toStr(prec.get("name")); }
+                                                String attendTime2 = resolveAttendTime(prec.get("verifyTime"), prec.get("checkDate"), prec.get("attTime"));
+                                                boolean labor2 = !isBlank(toStr(prec.get("team")));
+                                                addAttendanceWithDedup(byEngIdDedup, actualEngId, real, workerName2, attendTime2, labor2, mapped);
+                                            }
                                         }
                                     }
                                 }
@@ -238,17 +283,29 @@ public class ProjectWorkerAttendanceSyncService {
                     // 本条脱敏记录不再直接输出
                     continue;
                 }
-
                 Map<String, Object> m = mapSingleAttendanceToD6C(rec, resolved);
                 if (!m.isEmpty()) {
-                    engIdToPayload.computeIfAbsent(actualEngId, k -> new ArrayList<>()).add(m);
+                    String workerName = toStr(rec.get("workerName"));
+                    if (isBlank(workerName)) { workerName = toStr(rec.get("name")); }
+                    String attendTime = resolveAttendTime(rec.get("verifyTime"), rec.get("checkDate"), rec.get("attTime"));
+                    boolean labor = !isBlank(toStr(rec.get("team")));
+                    addAttendanceWithDedup(byEngIdDedup, actualEngId, resolved, workerName, attendTime, labor, m);
                 }
             }
+        }
+
+        // 将去重结构转为最终载荷
+        Map<String, List<Map<String, Object>>> engIdToPayload = new LinkedHashMap<>();
+        for (Map.Entry<String, LinkedHashMap<String, PayloadWithMeta>> e : byEngIdDedup.entrySet()) {
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (PayloadWithMeta pwm : e.getValue().values()) { list.add(pwm.payload); }
+            engIdToPayload.put(e.getKey(), list);
         }
 
         // 分批、分 engId 推送
         String method = props.getD6cApi().getMethod().getAttendance();
         int batch = Math.max(0, props.getAttendance().getMaxPostBatchSize());
+
         int pushed = 0;
 		for (Map.Entry<String, List<Map<String, Object>>> e : engIdToPayload.entrySet()) {
             String targetEngId = e.getKey();
@@ -551,7 +608,7 @@ public class ProjectWorkerAttendanceSyncService {
         String deviceSn = toStr(p.get("deviceSn"));
         putIfNotBlank(m, "attendDeviceCode", deviceSn);
         //001  ⼈脸识别
-        putIfNotBlank(m, "attendType", "⼈脸识别");
+        putIfNotBlank(m, "attendType", "001");
         return m;
     }
 

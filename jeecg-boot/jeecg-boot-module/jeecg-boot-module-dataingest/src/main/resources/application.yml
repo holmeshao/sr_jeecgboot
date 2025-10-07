@@ -264,10 +264,11 @@ projectworker:
     base: https://zhcjsmz.sanxiacloud.com
     personPath: /labor/externalCall/person
     attendancePath: /laboratt/attendance/page/
+    # 说明：上游考勤分页参数为 page 与 limit；page 从 1 开始自增，limit 对应下方 pageSize
     enablePhotoEnrich: false
   d6cApi:
-    #gateway: https://d6cnext.haolink.cn/dcs/biz/openapi/openApi/post
-    gateway: https://d6ctest.haolinkserver.cn/dcs/biz/openapi/openApi/post
+    gateway: https://d6cnext.haolink.cn/dcs/biz/openapi/openApi/post
+    #gateway: https://d6ctest.haolinkserver.cn/dcs/biz/openapi/openApi/post
     supplier: NEWGRAND
     method:
       companyBasic: Corp.Upload
@@ -277,22 +278,30 @@ projectworker:
       person: ProjectWorkerEntryExit.Upload
       attendance: ProjectWorkerAttendance.Upload
   attendance:
+    # ===== 分页与限流参数说明 =====
+    # pageSize：索引分页每页条数（limit），上游最大建议 500
+    # maxPagesPerDay：单日最大翻页数（保护上限），总拉取上限 = pageSize * maxPagesPerDay
+    # requestTimeoutMs：上游接口请求超时（毫秒）
+    # qpsLimitYichang / qpsLimitD6c：对上游/下游的软限流 QPS（0 表示不限）
+    # maxPostBatchSize：推送到 D6C 的单批最大条数（>0 时仅影响推送分片，与上游分页无关）
+    # 说明：索引分页按 page=1..N, limit=pageSize 拉取；当脱敏身份证无法唯一解析时，会对候选明文身份证做一次
+    # “精确查询”（带 idCardNumber 参数），该查询固定使用 page=1&limit=100 仅用于补齐数据，不会“切分” 500 的索引分页。
     enableIndexScan: true
     enableCascadeAfterWorkerSync: false
     dropUnknownEngId: true
-    pageSize: 200
-    maxPagesPerDay: 100
-    concurrentFetch: 8
-    concurrentPost: 4
-    requestTimeoutMs: 10000
+    pageSize: 500 # 索引分页每页条数（limit）
+    maxPagesPerDay: 10000
+    concurrentFetch: 8 # 按人精准拉取的并发数（回退路径使用）
+    concurrentPost: 4  # 推送到 D6C 的并发数
+    requestTimeoutMs: 100000 # 上游接口请求超时（毫秒）
     retryMaxAttempts: 3
     retryBackoffMs: 300
-    qpsLimitYichang: 0
-    qpsLimitD6c: 0
-    maxPostBatchSize: 0
+    qpsLimitYichang: 0 # 宜昌 API QPS 软限流（0 表示不限）
+    qpsLimitD6c: 0     # D6C API QPS 软限流（0 表示不限）
+    maxPostBatchSize: 0 # D6C 单批最大推送条数（>0 时会分片推送）
     cache:
-      resolveTtlDays: 7
-      candidateTtlHours: 24
+      resolveTtlDays: 7   # 强键解析缓存（天）
+      candidateTtlHours: 24 # 候选集合缓存（小时）
   projectConfig:
     # 外部 JSON 路径。支持前缀: classpath:/ 与 file:/
     # 示例：PROJECTWORKER_PROJECTS_PATH=file:/etc/jeecg/dataingest/projectworker/project-projects.json

@@ -81,11 +81,14 @@ public class ProjectWorkerSyncService {
             throw new IllegalStateException("宜昌实名制平台系统接口无数据或请求失败");
         }
 
+        // 预清洗：按(engId, idCardNumber) 去重，只保留一条“权威身份”
+        JSONArray cleanedPersons = normalizePersonsByIdAndTeam(engId, persons);
+
         // 处理得到团队和人员记录
-        List<Map<String, Object>> teamList = processTeamData(persons);
-        List<Map<String, Object>> personTeamList = processPersonTeamData(persons);
-        List<Map<String, Object>> personBasicList = processPersonBasicData(persons);
-        List<Map<String, Object>> companyList = processCompanyData(persons);
+        List<Map<String, Object>> teamList = processTeamData(cleanedPersons);
+        List<Map<String, Object>> personTeamList = processPersonTeamData(cleanedPersons);
+        List<Map<String, Object>> personBasicList = processPersonBasicData(cleanedPersons);
+        List<Map<String, Object>> companyList = processCompanyData(cleanedPersons);
 
         // 生成公共属性（签名等）
         Map<String, String> envelopeCommon = generateCommonAttributes(engId, override);
@@ -101,7 +104,7 @@ public class ProjectWorkerSyncService {
         try {
             int ttlDays = Math.max(1, props.getAttendance().getCache().getResolveTtlDays());
             List<JSONObject> personList = new ArrayList<>();
-            for (int i = 0; i < persons.size(); i++) { personList.add(persons.getJSONObject(i)); }
+            for (int i = 0; i < cleanedPersons.size(); i++) { personList.add(cleanedPersons.getJSONObject(i)); }
             personIndexCache.indexPersons(engId, personList, ttlDays);
         } catch (Exception e) {
             log.warn("索引人员缓存失败 engId={} err={}", engId, e.getMessage());
@@ -533,6 +536,72 @@ public class ProjectWorkerSyncService {
                 .replace("（", "(")
                 .replace("）", ")")
                 .replaceAll("\\s+", "");
+    }
+
+    /**
+     * 预清洗人员：
+     * - 空身份证号直接丢弃
+     * - 按 (engId, 规范化的 idCardNumber) 分组
+     * - 优先保留 team 非空（劳务身份）的记录；若均非空，则优先 worktype 非空；仍冲突保留先出现者
+     */
+    private JSONArray normalizePersonsByIdAndTeam(String engId, JSONArray persons) {
+        if (persons == null || persons.isEmpty()) { return persons; }
+
+        Map<String, JSONObject> bestByKey = new LinkedHashMap<>();
+        int droppedEmptyId = 0;
+        int replacedByTeamful = 0;
+        int replacedByWorktype = 0;
+
+        for (int i = 0; i < persons.size(); i++) {
+            JSONObject p = persons.getJSONObject(i);
+            String pid = toStr(p.get("id"));
+            String idCard = toStr(p.get("idCardNumber"));
+            if (isBlank(idCard)) {
+                droppedEmptyId++;
+                continue; // 丢弃空身份证
+            }
+            String key = engId + "|" + normalizeIdCardForKey(idCard);
+
+            JSONObject prev = bestByKey.get(key);
+            if (prev == null) {
+                bestByKey.put(key, p);
+                continue;
+            }
+
+            // 比较：优先 team 非空；其次 worktype 非空；否则保留已有（先出现）
+            boolean prevTeamful = !isBlank(toStr(prev.get("team")));
+            boolean currTeamful = !isBlank(toStr(p.get("team")));
+            if (prevTeamful != currTeamful) {
+                if (currTeamful) { bestByKey.put(key, p); replacedByTeamful++; }
+                continue;
+            }
+
+            boolean prevWorktype = !isBlank(toStr(prev.get("worktype")));
+            boolean currWorktype = !isBlank(toStr(p.get("worktype")));
+            if (prevWorktype != currWorktype) {
+                if (currWorktype) { bestByKey.put(key, p); replacedByWorktype++; }
+                continue;
+            }
+
+            // 其余保持先出现者，不替换
+        }
+
+        JSONArray cleaned = new JSONArray();
+        for (JSONObject v : bestByKey.values()) { cleaned.add(v); }
+
+        try {
+            log.info("人员预清洗完成 engId={} 输入={} 清洗后={} 丢弃空证件={} 劳务覆盖={} worktype覆盖={}",
+                    engId, persons.size(), cleaned.size(), droppedEmptyId, replacedByTeamful, replacedByWorktype);
+        } catch (Exception ignore) {}
+
+        return cleaned;
+    }
+
+    private static String normalizeIdCardForKey(String id) {
+        if (id == null) { return ""; }
+        String s = id.trim();
+        if (s.endsWith("x")) { s = s.substring(0, s.length() - 1) + "X"; }
+        return s;
     }
 
 
