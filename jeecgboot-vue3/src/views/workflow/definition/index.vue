@@ -2,14 +2,19 @@
   <div>
     <BasicTable @register="registerTable">
       <template #toolbar>
-        <a-button type="primary" @click="handleGoToDesigner">
-          <Icon icon="ant-design:edit-outlined" />
-          {{ t('routes.workflow.designer') }}
-        </a-button>
-        <a-button @click="handleDeploy" v-if="hasPermission('workflow:definition:deploy')">
-          <Icon icon="ant-design:plus-outlined" />
-          {{ t('routes.workflow.deploy') }}
-        </a-button>
+        <a-space>
+          <a-button type="primary" @click="handleGoToDesigner">
+            <Icon icon="ant-design:edit-outlined" />
+            {{ t('routes.workflow.designer') }}
+          </a-button>
+          <a-button @click="handleDeploy" v-if="hasPermission('workflow:definition:deploy')">
+            <Icon icon="ant-design:plus-outlined" />
+            {{ t('routes.workflow.deploy') }}
+          </a-button>
+          <a-divider type="vertical" />
+          <span>显示全部版本</span>
+          <a-switch v-model:checked="showAllVersions" @change="onToggleShowAll" />
+        </a-space>
       </template>
 
       <template #bodyCell="{ column, record }">
@@ -205,6 +210,7 @@
   const selectedModelId = ref<string>('');
   const modelOptions = ref<any[]>([]);
   const latestModelVersionText = ref<string>('—');
+  const showAllVersions = ref<boolean>(false);
 
   const currentRecord = ref<any>(null);
   // 切换版本目标（当前列表选中的流程定义）
@@ -213,9 +219,9 @@
   const editingRecord = ref<any>(null);
 
   // 表格配置
-  const [registerTable, { reload, getSelectRowKeys }] = useTable({
+  const [registerTable, { reload, getSelectRowKeys, setTableData }] = useTable({
     title: t('routes.workflow.definition'),
-    api: (params:any) => workflowDefinitionApi.getList({ ...params, includeAllVersions: false }),
+    api: (params:any) => workflowDefinitionApi.getList({ ...params, includeAllVersions: showAllVersions.value }),
     columns: [
       {
         title: t('routes.workflow.definitionName'),
@@ -515,6 +521,10 @@
     }
   }
   loadModelOptions();
+
+  function onToggleShowAll() {
+    reload();
+  }
 
   // 从“选择模型版本”模式打开版本弹窗
   async function openModelVersionsFromSelector() {

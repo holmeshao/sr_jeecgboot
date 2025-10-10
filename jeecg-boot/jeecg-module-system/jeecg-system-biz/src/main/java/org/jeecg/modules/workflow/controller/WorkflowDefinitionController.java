@@ -30,6 +30,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.jeecg.modules.workflow.entity.OnlCgformWorkflowNode;
 import org.jeecg.modules.workflow.mapper.OnlCgformWorkflowNodeMapper;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
+import java.util.HashSet;
+import java.util.Set;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 
@@ -433,6 +435,33 @@ public class WorkflowDefinitionController {
             String xml = String.valueOf(xmlObj);
             if (xml.trim().isEmpty()) {
                 return Result.error("xml内容为空");
+            }
+
+            // ========== 幂等校验（代码层）==========
+            // 如果携带了 modelId + modelVersion，则仅允许部署一次
+            if (modelId != null && modelVersion != null) {
+                // 读取所有部署记录，检查 jeecg-deploy-meta.json 中是否已有相同 (modelId, modelVersion)
+                List<Deployment> deployments = repositoryService.createDeploymentQuery().list();
+                for (Deployment dep : deployments) {
+                    try {
+                        List<String> res = repositoryService.getDeploymentResourceNames(dep.getId());
+                        if (res == null) continue;
+                        if (!res.contains("jeecg-deploy-meta.json") && !res.contains("deployment-description.txt")) continue;
+                        String metaName = res.contains("jeecg-deploy-meta.json") ? "jeecg-deploy-meta.json" : "deployment-description.txt";
+                        InputStream is = repositoryService.getResourceAsStream(dep.getId(), metaName);
+                        String meta = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                        try {
+                            JSONObject obj = JSON.parseObject(meta);
+                            if (obj != null) {
+                                String mid = obj.getString("modelId");
+                                Integer mv = obj.getInteger("modelVersion");
+                                if (modelId.equals(mid) && modelVersion.equals(mv)) {
+                                    return Result.error("该模型版本已部署，禁止重复部署");
+                                }
+                            }
+                        } catch (Exception ignore) {}
+                    } catch (Exception ignore) {}
+                }
             }
 
             // 如前端传入了 name，则同步覆盖 XML 的 <process name="...">

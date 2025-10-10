@@ -5,6 +5,7 @@ import org.flowable.engine.RepositoryService;
 import org.flowable.engine.repository.ProcessDefinition;
 import org.jeecg.modules.workflow.parser.BpmnFieldPermissionParser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -26,6 +27,13 @@ public class WorkflowEventService {
     
     @Autowired
     private BpmnFieldPermissionParser bpmnFieldPermissionParser;
+
+    /**
+     * 部署新版本后是否自动挂起旧版本（不影响在途实例）。
+     * 默认: true
+     */
+    @Value("${workflow.auto-suspend-old-versions:true}")
+    private boolean autoSuspendOldVersions;
 
     /**
      * 🎯 流程定义部署后的事件处理
@@ -55,6 +63,23 @@ public class WorkflowEventService {
                 processDefinition.getKey()
             );
             
+            // 2.1 新版本激活后，自动挂起旧版本（不影响在途实例）
+            if (autoSuspendOldVersions) {
+                try {
+                    List<ProcessDefinition> defs = repositoryService.createProcessDefinitionQuery()
+                        .processDefinitionKey(processDefinitionKey)
+                        .list();
+                    for (ProcessDefinition def : defs) {
+                        if (!def.getId().equals(processDefinition.getId()) && !def.isSuspended()) {
+                            repositoryService.suspendProcessDefinitionById(def.getId(), false, null);
+                            log.info("🔕 已自动挂起旧版本：key={}, id={}, version={}", def.getKey(), def.getId(), def.getVersion());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("自动挂起旧版本失败：{}", e.getMessage());
+                }
+            }
+
             // 3. 其他部署后处理逻辑
             performAdditionalDeploymentTasks(processDefinition);
             
