@@ -22,7 +22,7 @@
         </a-button>
         <a-button type="primary" @click="deployProcess" :disabled="!hasProcess" :loading="deploying">
           <Icon icon="ant-design:cloud-upload-outlined" />
-          部署流程
+          请求发布
         </a-button>
         <a-button @click="openVersionHistory">
           <Icon icon="ant-design:history-outlined" />
@@ -384,7 +384,7 @@
 
 <script lang="ts" setup>
   import { ref, reactive, onMounted, onBeforeUnmount, nextTick, markRaw, toRaw } from 'vue';
-  import { useRoute } from 'vue-router';
+  import { useRoute, useRouter } from 'vue-router';
   import { workflowDefinitionApi, workflowModelApi } from '/@/api/workflow';
   // bpmn 样式（画布/字体/属性面板）
   import 'bpmn-js/dist/assets/diagram-js.css';
@@ -416,6 +416,7 @@
 
   const { createMessage } = useMessage();
   const route = useRoute();
+  const router = useRouter();
 
   // 组件状态
   const bpmnContainer = ref<HTMLElement>();
@@ -1059,9 +1060,16 @@
     }
   }
 
-  // 部署流程
+  // 部署改为：请求发布 → 跳到流程定义页，并携带当前模型ID（若有）
   function deployProcess() {
-    openDeployModal();
+    try {
+      const q: any = {};
+      if (currentModelId.value) q.modelId = currentModelId.value;
+      router.push({ path: '/workflow/definition', query: q });
+    } catch (e) {
+      // 兜底：如果路由跳转失败，保持旧行为（本地打开部署），避免打断使用
+      try { openDeployModal(); } catch (_) {}
+    }
   }
 
   // 处理部署提交

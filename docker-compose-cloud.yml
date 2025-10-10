@@ -212,6 +212,8 @@ services:
     hostname: jeecg-boot-gateway
     volumes:
       - /opt/docker/gateway/logs:/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - jeecg-boot
 
@@ -222,6 +224,8 @@ services:
       context: ./jeecg-boot/jeecg-boot-module/jeecg-boot-module-dataingest
     container_name: jeecg-dataingest-start
     hostname: jeecg-boot-dataingest
+    ports:
+      - 10099:10099  # 暴露执行器端口
     restart: on-failure
     environment:
       - TZ=Asia/Shanghai

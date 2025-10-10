@@ -449,9 +449,11 @@ export const workflowDefinitionApi = {
    * 部署流程定义
    */
   deploy: (data: any) => {
+    const isForm = (typeof FormData !== 'undefined') && (data instanceof FormData);
     return defHttp.post<any>({
       url: '/workflow/definition/deploy',
       data,
+      headers: isForm ? { 'Content-Type': 'multipart/form-data' } : undefined,
     });
   },
 

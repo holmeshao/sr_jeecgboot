@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.jeecg.modules.workflow.entity.OnlCgformWorkflowNode;
 import org.jeecg.modules.workflow.mapper.OnlCgformWorkflowNodeMapper;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 
 /**
  * 工作流程定义管理Controller
@@ -65,7 +68,8 @@ public class WorkflowDefinitionController {
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String key,
             @RequestParam(required = false) String name,
-            @RequestParam(required = false) String category) {
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false, defaultValue = "false") Boolean includeAllVersions) {
         
         try {
             ProcessDefinitionQuery query = repositoryService.createProcessDefinitionQuery();
@@ -81,7 +85,13 @@ public class WorkflowDefinitionController {
                 query.processDefinitionCategory(category);
             }
             
-            // 按流程定义版本倒序（Flowable 7.0 API）
+            // 仅展示最新版本（默认）。如需查看所有版本，可传 includeAllVersions=true
+            if (!Boolean.TRUE.equals(includeAllVersions)) {
+                query.latestVersion();
+            }
+
+            // 按 key 升序 + 版本号倒序，方便阅读
+            query.orderByProcessDefinitionKey().asc();
             query.orderByProcessDefinitionVersion().desc();
             
             // 分页查询
@@ -110,6 +120,41 @@ public class WorkflowDefinitionController {
                 if (deployment != null) {
                     record.put("deploymentTime", deployment.getDeploymentTime());
                     record.put("deploymentName", deployment.getName());
+                    try {
+                        // 读取我们自定义的部署元数据，提取模型版本
+                        java.util.List<String> names = repositoryService.getDeploymentResourceNames(deployment.getId());
+                        String metaName = null;
+                        if (names != null) {
+                            for (String n : names) {
+                                if ("jeecg-deploy-meta.json".equals(n) || "deployment-description.txt".equals(n)) {
+                                    metaName = n; break;
+                                }
+                            }
+                        }
+                        if (metaName != null) {
+                            InputStream mis = repositoryService.getResourceAsStream(deployment.getId(), metaName);
+                            String meta = new String(mis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                            Integer modelVersion = null;
+                            String modelKey = null;
+                            try {
+                                JSONObject obj = JSON.parseObject(meta);
+                                if (obj != null) {
+                                    modelVersion = obj.getInteger("modelVersion");
+                                    record.put("modelId", obj.getString("modelId"));
+                                    modelKey = obj.getString("modelKey");
+                                }
+                            } catch (Exception ignore) {
+                                // 兼容老格式：纯数字/或 key=value
+                                try { modelVersion = Integer.valueOf(meta.trim()); } catch (Exception ignored) {}
+                            }
+                            if (modelVersion != null) {
+                                record.put("modelVersion", modelVersion);
+                            }
+                            if (modelKey != null) {
+                                record.put("modelKey", modelKey);
+                            }
+                        }
+                    } catch (Exception ignore) {}
                 }
                 
                 return record;
@@ -170,7 +215,11 @@ public class WorkflowDefinitionController {
     public Result<String> deployDefinition(
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) String name,
-            @RequestParam(required = false) String category) {
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String description,
+            @RequestParam(required = false) Integer modelVersion,
+            @RequestParam(required = false) String modelId,
+            @RequestParam(required = false) String modelKey) {
         
         try {
             if (file.isEmpty()) {
@@ -182,14 +231,28 @@ public class WorkflowDefinitionController {
                 return Result.error("只支持.bpmn或.bpmn20.xml格式的流程文件");
             }
             
-            InputStream inputStream = file.getInputStream();
-            String deploymentName = name != null ? name : filename;
+            // 读取并可选改写XML中的 <process name>
+            String xml = new String(file.getBytes(), StandardCharsets.UTF_8);
+            if (name != null && name.trim().length() > 0) {
+                xml = overrideProcessNameInXml(xml, name.trim());
+            }
+            InputStream inputStream = new java.io.ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8));
+            String deploymentName = name != null && name.trim().length() > 0 ? name.trim() : filename;
             
-            Deployment deployment = repositoryService.createDeployment()
+            org.flowable.engine.repository.DeploymentBuilder builder = repositoryService.createDeployment()
                     .addInputStream(filename, inputStream)
                     .name(deploymentName)
-                    .category(category)
-                    .deploy();
+                    .category(category);
+            try {
+                // 写入一份 JSON 元数据，包含来源模型/模型版本
+                JSONObject meta = new JSONObject();
+                if (description != null) meta.put("description", description.trim());
+                if (modelVersion != null) meta.put("modelVersion", modelVersion);
+                if (modelId != null) meta.put("modelId", modelId);
+                if (modelKey != null) meta.put("modelKey", modelKey);
+                builder.addString("jeecg-deploy-meta.json", meta.toJSONString());
+            } catch (Exception ignore) {}
+            Deployment deployment = builder.deploy();
             
             log.info("流程定义部署成功，部署ID：{}", deployment.getId());
             
@@ -353,6 +416,16 @@ public class WorkflowDefinitionController {
             String name = body.getOrDefault("name", "process").toString();
             String category = body.getOrDefault("category", "").toString();
             String description = String.valueOf(body.getOrDefault("description", ""));
+            // 来源模型元信息（可选）
+            Integer modelVersion = null;
+            try {
+                Object mv = body.get("modelVersion");
+                if (mv != null) modelVersion = Integer.valueOf(String.valueOf(mv));
+            } catch (Exception ignore) {}
+            String modelId = null;
+            try { Object mid = body.get("modelId"); if (mid != null) modelId = String.valueOf(mid); } catch (Exception ignore) {}
+            String modelKey = null;
+            try { Object mk = body.get("modelKey"); if (mk != null) modelKey = String.valueOf(mk); } catch (Exception ignore) {}
             Object xmlObj = body.get("xml");
             if (xmlObj == null) {
                 return Result.error("缺少xml字段");
@@ -362,6 +435,11 @@ public class WorkflowDefinitionController {
                 return Result.error("xml内容为空");
             }
 
+            // 如前端传入了 name，则同步覆盖 XML 的 <process name="...">
+            if (name != null && name.trim().length() > 0) {
+                xml = overrideProcessNameInXml(xml, name.trim());
+            }
+
             // 统一处理：直接用字符串部署
             String resourceName = (name != null && name.trim().length() > 0 ? name.trim() : "process") + ".bpmn20.xml";
             java.io.InputStream inputStream = new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -369,11 +447,14 @@ public class WorkflowDefinitionController {
                     .addInputStream(resourceName, inputStream)
                     .name(name)
                     .category(category);
-            if (description != null && description.trim().length() > 0) {
-                try {
-                    builder.addString("deployment-description.txt", description);
-                } catch (Exception ignore) {}
-            }
+            try {
+                JSONObject meta = new JSONObject();
+                if (description != null && description.trim().length() > 0) meta.put("description", description);
+                if (modelVersion != null) meta.put("modelVersion", modelVersion);
+                if (modelId != null) meta.put("modelId", modelId);
+                if (modelKey != null) meta.put("modelKey", modelKey);
+                builder.addString("jeecg-deploy-meta.json", meta.toJSONString());
+            } catch (Exception ignore) {}
             Deployment deployment = builder.deploy();
 
             // 触发部署后事件（与文件上传部署保持一致）
@@ -553,5 +634,36 @@ public class WorkflowDefinitionController {
             log.error("从BPMN同步到配置失败", e);
             return Result.error("同步失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 将 BPMN XML 中第一个 <process> 元素的 name 属性覆盖为给定值。
+     * 简单正则处理，尽可能不影响其他内容；若未找到 name 属性则追加。
+     */
+    private String overrideProcessNameInXml(String xml, String newName) {
+        if (xml == null || xml.isEmpty()) {
+            return xml;
+        }
+        try {
+            // 匹配第一个 <process ...> 起始标签
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("(<process\\b[^>]*)(>)");
+            java.util.regex.Matcher m = p.matcher(xml);
+            if (m.find()) {
+                String startTag = m.group(1);
+                String end = m.group(2);
+                // 先替换已有 name="..."
+                String replaced = startTag.replaceAll("name=\\\".*?\\\"", "name=\\\"" + java.util.regex.Matcher.quoteReplacement(newName) + "\\\"");
+                // 若没有 name 属性，则追加
+                if (!replaced.contains("name=\"")) {
+                    replaced = replaced + " name=\"" + newName.replace("\"", " ") + "\"";
+                }
+                StringBuilder sb = new StringBuilder();
+                m.appendReplacement(sb, replaced + end);
+                m.appendTail(sb);
+                return sb.toString();
+            }
+        } catch (Exception ignore) {
+        }
+        return xml;
     }
 }
