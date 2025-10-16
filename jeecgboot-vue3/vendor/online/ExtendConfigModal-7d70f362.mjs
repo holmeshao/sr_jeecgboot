@@ -83,10 +83,8 @@ const I = B({
       });
     }
     function T(t) {
-      if (t === 1) {
-        let { themeTemplate: i, isTree: k, tableType: g } = r.parentForm.getFieldsValue(["themeTemplate", "isTree", "tableType"]);
-        i === "erp" && (o.warning("请注意：erp风格不支持联合查询，配置无效!"), e({ joinQuery: 0 })), i === "innerTable" && (o.warning("请注意：内嵌风格不支持联合查询，配置无效!"), e({ joinQuery: 0 })), g === 1 ? (o.warning("请注意：单表不支持联合查询，配置无效!"), e({ joinQuery: 0 })) : g === 3 ? (o.warning("请注意：当前表为附表，请在对应主表配置!"), e({ joinQuery: 0 })) : k === "Y" && (o.warning("请注意：树形列表不支持联合查询，配置无效!"), e({ joinQuery: 0 }));
-      }
+      // 放开前端对联合查询的限制，交由后端根据配置自动处理
+      // 不再强制回写 joinQuery=0，仅保留提示（可按需补充）
     }
     return {
       handleOk: _,

@@ -171,7 +171,8 @@ public class OnlCgformWorkflowConfig implements Serializable {
      * 获取状态字段名（带默认值）
      */
     public String getStatusFieldOrDefault() {
-        return statusField != null ? statusField : "bmp_status";
+        // 统一默认：bpmn_status
+        return statusField != null ? statusField : "bpmn_status";
     }
 
     /**

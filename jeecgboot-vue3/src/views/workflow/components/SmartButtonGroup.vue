@@ -40,6 +40,7 @@
     submit: [];
     approve: [];
     reject: [];
+    buttonClick: [any, string?];
   }>();
 
   const workflowButtons = ref<any[]>([]);

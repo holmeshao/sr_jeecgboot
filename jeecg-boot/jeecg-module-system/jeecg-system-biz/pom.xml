@@ -53,9 +53,11 @@
 			<groupId>org.hibernate</groupId>
 			<artifactId>hibernate-core</artifactId>
 		</dependency>
+		<!-- 恢复使用官方打包的 Online 模块（hibernate-re jar） -->
 		<dependency>
 			<groupId>org.jeecgframework.boot</groupId>
 			<artifactId>hibernate-re</artifactId>
+			<version>3.8.0.2</version>
 		</dependency>
 
 		<!-- AI大模型管理 -->

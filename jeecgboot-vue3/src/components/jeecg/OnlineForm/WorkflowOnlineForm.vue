@@ -542,18 +542,19 @@ const loadFormConfig = async () => {
     
     // 使用懒加载
     await reloadConfig();
-    const config = lazyFormConfig.value;
+    const config = lazyFormConfig.value as any;
     
-    if (config && config.success) {
-      processFormConfig(config.result);
-      
-      // 缓存结果
-      cache.formConfig.set(props.table, config.result);
-      
-      return config.result;
-    } else {
-      throw new Error(config?.message || '加载表单配置失败');
+    // 兼容 defHttp 是否已做了 result 提取：
+    // 1) 包装 {success, result}
+    // 2) 直接返回 result
+    const ok = !!config && (config.success === true || config.head || config.schema);
+    if (ok) {
+      const real = config.success ? config.result : config;
+      processFormConfig(real);
+      cache.formConfig.set(props.table, real);
+      return real;
     }
+    throw new Error((config && config.message) || '加载表单配置失败');
   }, {
     showMessage: true,
     title: '加载表单配置'
@@ -567,7 +568,37 @@ const processFormConfig = (config: any) => {
   
   // 解析表单字段
   if (config.schema) {
-    formFields.value = Array.isArray(config.schema) ? config.schema : Object.values(config.schema);
+    // 兼容 Jeecg JSON Schema：{ properties: { fieldKey: {...} }, required: [] }
+    if (config.schema.properties && typeof config.schema.properties === 'object') {
+      const requiredArr: string[] = Array.isArray(config.schema.required) ? config.schema.required : [];
+      const mapViewToType = (view?: string, t?: string) => {
+        const v = (view || '').toLowerCase();
+        const ty = (t || '').toLowerCase();
+        if (v.includes('markdown') || v.includes('textarea')) return 'textarea';
+        if (v.includes('list')) return 'select';
+        if (v.includes('link_table') || v.includes('popup') || v.includes('dict')) return 'select';
+        if (v.includes('date') && v.includes('time')) return 'datetime';
+        if (v === 'date' || ty === 'date') return 'date';
+        if (v.includes('number') || ty === 'number' || ty === 'integer') return 'number';
+        return 'input';
+      };
+      const fields: any[] = [];
+      Object.keys(config.schema.properties).forEach((key) => {
+        const p = config.schema.properties[key] || {};
+        fields.push({
+          key,
+          label: p.title || key,
+          type: mapViewToType(p.view, p.type),
+          fieldLength: p.dbLength || p.fieldLength,
+          fieldPointLength: p.dbPointLength || p.fieldPointLength,
+          dictOptions: p.dictOptions || [],
+          formSchema: { require: requiredArr.includes(key) }
+        });
+      });
+      formFields.value = fields;
+    } else {
+      formFields.value = Array.isArray(config.schema) ? config.schema : Object.values(config.schema);
+    }
   }
   
   // 解析子表

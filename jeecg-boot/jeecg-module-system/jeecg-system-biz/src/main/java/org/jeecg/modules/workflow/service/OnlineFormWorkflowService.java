@@ -49,6 +49,13 @@ public class OnlineFormWorkflowService {
     @Autowired
     private TaskService taskService;
     
+    /** 可选：历史/仓库服务（可能未启用Flowable相关Bean时允许为空） */
+    @Autowired(required = false)
+    private org.flowable.engine.HistoryService historyService;
+    
+    @Autowired(required = false)
+    private org.flowable.engine.RepositoryService repositoryService;
+    
     @Autowired
     private OnlCgformWorkflowConfigMapper workflowConfigMapper;
     
@@ -66,6 +73,10 @@ public class OnlineFormWorkflowService {
     
     @Autowired
     private OnlineFormPermissionEngine permissionEngine;
+
+    /** 可选：业务状态钩子，便于项目自定义联动业务status */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.jeecg.modules.workflow.service.hook.WorkflowStatusHook workflowStatusHook;
     
     /**
      * 🎯 智能提交表单（基于JeecgBoot现有服务 + 工作流扩展）
@@ -111,32 +122,22 @@ public class OnlineFormWorkflowService {
             result.put("formId", formId);
             result.put("message", "表单提交成功");
             
-            // 4. 检查工作流配置
+            // 4. 启动流程（固定：提交即发起，失败则回滚）
             OnlCgformWorkflowConfig workflowConfig = getWorkflowConfig(formId);
-            if (workflowConfig != null && isWorkflowEnabled(workflowConfig)) {
-                result.put("workflowEnabled", true);
-                result.put("workflowStartMode", workflowConfig.getWorkflowStartMode());
-                
-                if ("AUTO".equals(workflowConfig.getWorkflowStartMode())) {
-                    // 自动启动工作流
-                    try {
-                        String processInstanceId = startFormWorkflow(formId, resultDataId, formData.getInnerMap());
-                        result.put("action", "workflow_started");
-                        result.put("processInstanceId", processInstanceId);
-                        result.put("message", "表单已提交并自动启动工作流");
-                    } catch (Exception e) {
-                        log.error("自动启动工作流失败", e);
-                        result.put("action", "form_saved_workflow_failed");
-                        result.put("message", "表单已保存，但工作流启动失败: " + e.getMessage());
-                    }
-                } else {
-                    result.put("action", "draft_saved");
-                    result.put("canStartWorkflow", true);
-                    result.put("message", "表单已保存，可手动启动工作流");
-                }
-            } else {
-                result.put("action", "form_saved");
-                result.put("workflowEnabled", false);
+            if (workflowConfig == null || !isWorkflowEnabled(workflowConfig)) {
+                throw new JeecgBootException("该表单未启用工作流或未配置流程");
+            }
+            result.put("workflowEnabled", true);
+            try {
+                String processInstanceId = startFormWorkflow(formId, resultDataId, formData.getInnerMap());
+                result.put("action", "workflow_started");
+                result.put("processInstanceId", processInstanceId);
+                result.put("message", "提交并发起流程成功");
+            } catch (Exception e) {
+                log.error("提交即发起流程失败，回滚", e);
+                // 抛出异常触发事务回滚
+                throw (e instanceof JeecgBootException) ? (JeecgBootException) e
+                        : new JeecgBootException("工作流启动失败: " + e.getMessage());
             }
             
             return Result.OK(result);
@@ -168,8 +169,7 @@ public class OnlineFormWorkflowService {
             
             String formId = cgformHead.getId();
             
-            // 2. 添加草稿状态标识
-            formData.put("status", "DRAFT");
+            // 2. 添加草稿状态标识（仅供保存时带入；最终以统一回写为准）
             formData.put("workflow_status", "DRAFT");
             
             // 3. 直接使用JeecgBoot API保存草稿数据
@@ -187,7 +187,10 @@ public class OnlineFormWorkflowService {
                 return Result.error("保存草稿失败: " + e.getMessage());
             }
             
-            // 4. 构建返回结果
+            // 4. 统一写入草稿态
+            updateBusinessStatus(formId, resultDataId, "DRAFT");
+
+            // 5. 构建返回结果
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);
             result.put("status", "DRAFT");
@@ -197,7 +200,7 @@ public class OnlineFormWorkflowService {
             result.put("canEdit", true);
             result.put("message", "草稿保存成功");
             
-            // 5. 检查是否可以启动工作流
+            // 6. 检查是否可以启动工作流
             OnlCgformWorkflowConfig workflowConfig = getWorkflowConfig(formId);
             if (workflowConfig != null && isWorkflowEnabled(workflowConfig)) {
                 result.put("canStartWorkflow", true);
@@ -341,7 +344,23 @@ public class OnlineFormWorkflowService {
         taskService.complete(taskId, formData);
         
         // 6. 更新业务状态
-        updateBusinessStatusFromProcess(processInstanceId);
+        // 6.1 驳回显式处理（如果表单变量包含驳回标记）
+        try {
+            Object ar = formData != null ? formData.get("approve_result") : null;
+            if (ar != null && "reject".equalsIgnoreCase(String.valueOf(ar))) {
+                String businessKey = getProcessBusinessKey(processInstanceId);
+                if (businessKey != null && businessKey.contains(":")) {
+                    String[] parts = businessKey.split(":");
+                    String formId = parts[0];
+                    String dataIdFromBk = parts[1];
+                    updateBusinessStatus(formId, dataIdFromBk, "REJECTED");
+                }
+            } else {
+                updateBusinessStatusFromProcess(processInstanceId);
+            }
+        } catch (Exception ignore) {
+            updateBusinessStatusFromProcess(processInstanceId);
+        }
         
         log.info("提交节点表单成功: taskId={}, nodeCode={}, processInstanceId={}", 
                 taskId, nodeCode, processInstanceId);
@@ -932,10 +951,26 @@ public class OnlineFormWorkflowService {
                 log.warn("找不到业务数据: formId={}, dataId={}", formId, dataId);
                 return;
             }
+            // 取配置字段名
+            OnlCgformWorkflowConfig config = getWorkflowConfig(formId);
+            String statusField = (config != null ? config.getStatusFieldOrDefault() : "bmp_status");
+            Object oldVal = currentData.get(statusField);
             
-            // 更新状态字段
-            currentData.put("status", status);
+            // 钩子：回写前
+            if (workflowStatusHook != null) {
+                try {
+                    workflowStatusHook.beforeUpdateStatus(formId, dataId, statusField, oldVal, status);
+                } catch (Exception e) {
+                    log.debug("beforeUpdateStatus 钩子执行异常(忽略): {}", e.getMessage());
+                }
+            }
+
+            // 统一写入 workflow_status（字符串态，便于通用查询）
             currentData.put("workflow_status", status);
+
+            // 写入配置的状态字段：若为 bmp_status，写入字典值0/1/2/3
+            Object mapped = mapStatusForStatusField(statusField, status);
+            currentData.put(statusField, mapped);
             currentData.put("update_time", System.currentTimeMillis());
             currentData.put("update_by", getCurrentUser());
             
@@ -948,10 +983,35 @@ public class OnlineFormWorkflowService {
             } else {
                 log.error("业务状态更新失败: {}", result.getMessage());
             }
+
+            // 钩子：回写后
+            if (workflowStatusHook != null) {
+                try {
+                    workflowStatusHook.afterUpdateStatus(formId, dataId, statusField, oldVal, mapped);
+                } catch (Exception e) {
+                    log.debug("afterUpdateStatus 钩子执行异常(忽略): {}", e.getMessage());
+                }
+            }
             
         } catch (Exception e) {
             log.error("更新业务状态异常: formId={}, dataId={}, status={}", formId, dataId, status, e);
         }
+    }
+
+    /**
+     * 将语义态映射到具体字段的存储值（bmp_status→数字；其他→原样字符串）
+     */
+    private Object mapStatusForStatusField(String statusField, String status) {
+        if (statusField == null) return status;
+        String sf = statusField.toLowerCase();
+        if (sf.contains("bmp_status")) {
+            // 数字字典：0草稿 1处理中 2已完成 3驳回
+            if ("DRAFT".equalsIgnoreCase(status)) return 0;
+            if ("IN_PROCESS".equalsIgnoreCase(status) || "PROCESSING".equalsIgnoreCase(status)) return 1;
+            if ("COMPLETED".equalsIgnoreCase(status)) return 2;
+            if ("REJECTED".equalsIgnoreCase(status)) return 3;
+        }
+        return status;
     }
     
     /**
@@ -1005,12 +1065,20 @@ public class OnlineFormWorkflowService {
         try {
             Map<String, Object> businessData = getBusinessData(formId, dataId);
             
-            // 尝试从常见的状态字段获取
-            String[] statusFields = {"status", "form_status", "workflow_status", "bpm_status"};
+            // 尝试从常见的状态字段获取（含 bmp_status）
+            String[] statusFields = {"workflow_status", "bmp_status", "status", "form_status", "bpm_status"};
             
             for (String statusField : statusFields) {
                 Object status = businessData.get(statusField);
                 if (status != null && !StringUtils.isEmpty(status.toString())) {
+                    // bmp_status 的数字态 → 语义态
+                    if ("bmp_status".equalsIgnoreCase(statusField)) {
+                        String s = status.toString();
+                        if ("0".equals(s)) return "DRAFT";
+                        if ("1".equals(s)) return "IN_PROCESS";
+                        if ("2".equals(s)) return "COMPLETED";
+                        if ("3".equals(s)) return "REJECTED";
+                    }
                     return status.toString();
                 }
             }
@@ -1027,6 +1095,17 @@ public class OnlineFormWorkflowService {
             log.error("获取业务状态失败: formId={}, dataId={}", formId, dataId, e);
             return "DRAFT";
         }
+    }
+
+    /** 获取流程实例对应的业务主键 */
+    private String getProcessBusinessKey(String processInstanceId) {
+        try {
+            ProcessInstance pi = runtimeService.createProcessInstanceQuery().processInstanceId(processInstanceId).singleResult();
+            if (pi != null) return pi.getBusinessKey();
+            org.flowable.engine.history.HistoricProcessInstance hi = historyService.createHistoricProcessInstanceQuery().processInstanceId(processInstanceId).singleResult();
+            if (hi != null) return hi.getBusinessKey();
+        } catch (Exception ignore) {}
+        return null;
     }
     
     /**
@@ -1076,8 +1155,8 @@ public class OnlineFormWorkflowService {
             }
             
                          // 获取工作流配置中定义的流程实例字段名
-             OnlCgformWorkflowConfig config = getWorkflowConfig(formId);
-             String processInstanceField = getProcessInstanceFieldOrDefault(config);
+            OnlCgformWorkflowConfig config = getWorkflowConfig(formId);
+            String processInstanceField = (config != null ? config.getProcessInstanceFieldOrDefault() : "process_instance_id");
             
             // 更新流程实例ID
             currentData.put(processInstanceField, processInstanceId);

@@ -133,6 +133,8 @@ const pt = (a, l) => v.post({ url: `/online/cgform/api/doDbSynch/${a}/${l}`, tim
     const wfUiMode = y("SPLIT");
     const wfUiSchema = y("");
     const wfLoading = y(!1);
+    // 高级配置（整体JSON，存表头 extConfigJson.workflow.configJson）
+    const wfAdvancedJson = y("");
     // 字段批量权限
     const wfFieldRows = y([]);
     function wfLoadFields() {
@@ -237,6 +239,150 @@ const pt = (a, l) => v.post({ url: `/online/cgform/api/doDbSynch/${a}/${l}`, tim
         c.success("默认配置已保存");
       });
     }
+    // 高级配置：读/写/校验/格式化（大JSON，含 nodes/variables/buttons/uiSchema 等）
+    // 将对象的第一层 key 做映射转换
+    function wfMapFirstLevelKeys(obj, mapFn) {
+      if (!obj || typeof obj !== "object") return obj;
+      const out = {};
+      Object.keys(obj).forEach((k) => {
+        const nk = mapFn(k) || k;
+        out[nk] = obj[k];
+      });
+      return out;
+    }
+    // 获取流程节点的 名称<->ID 映射
+    function wfFetchNodeMaps() {
+      return D(this, null, function* () {
+        const tn = $.value || (g == null ? void 0 : g.tableName) || "";
+        if (!tn || !wfProcessKey.value) return { name2id: {}, id2name: {} };
+        try {
+          const list = yield v.get({ url: "/workflow/onlineForm/node/formNodes", params: { tableName: tn, processKey: wfProcessKey.value } });
+          const arr = Array.isArray(list) ? list : (list && (list.records || list.data) ? (list.records || list.data) : []);
+          const name2id = {}, id2name = {};
+          (arr || []).forEach((n) => {
+            const id = n.nodeId || n.node_id || n.id;
+            const name = n.nodeName || n.node_name || n.name;
+            if (id && name) {
+              name2id[name] = id;
+              id2name[id] = name;
+            }
+          });
+          return { name2id, id2name };
+        } catch (e) {
+          return { name2id: {}, id2name: {} };
+        }
+      });
+    }
+    function wfAdvLoad() {
+      if (!g.id) {
+        c.warning("请先保存表头");
+        return;
+      }
+      try {
+        s.workflow || (s.workflow = {});
+        const adv = s.workflow.configJson;
+        // 如果能拿到节点映射，则把ID转成名称，方便编辑
+        const applyPretty = (cfg, maps) => {
+          try {
+            if (!cfg || !cfg.workflow) return cfg;
+            const id2name = (maps && maps.id2name) || {};
+            const toName = (k) => id2name[k] || k;
+            const w = Object.assign({}, cfg.workflow);
+            if (w.nodes && typeof w.nodes === "object") w.nodes = wfMapFirstLevelKeys(w.nodes, toName);
+            if (w.variables && typeof w.variables === "object") w.variables = wfMapFirstLevelKeys(w.variables, toName);
+            if (w.uiSchema && typeof w.uiSchema === "object") w.uiSchema = wfMapFirstLevelKeys(w.uiSchema, toName);
+            return Object.assign({}, cfg, { workflow: w });
+          } catch (_) { return cfg; }
+        };
+        if (adv) {
+          const parsed = typeof adv === "string" ? JSON.parse(adv) : adv;
+          wfFetchNodeMaps().then((maps) => {
+            const pretty = applyPretty(parsed, maps);
+            wfAdvancedJson.value = JSON.stringify(pretty, null, 2);
+            c.success("已读取高级配置");
+          });
+        } else {
+          wfAdvancedJson.value = "";
+          c.success("已读取高级配置");
+        }
+      } catch (e) {}
+    }
+    function wfAdvSave() {
+      return D(this, null, function* () {
+        if (!g.id) {
+          c.warning("请先保存表头");
+          return;
+        }
+        let parsed = null;
+        if (wfAdvancedJson.value) {
+          try {
+            parsed = JSON.parse(wfAdvancedJson.value);
+          } catch (e) {
+            c.warning("高级配置 JSON 格式不正确");
+            return;
+          }
+        }
+        // 将名称转回节点ID再保存
+        const resolveById = (cfg, maps) => {
+          if (!cfg || !cfg.workflow) return cfg;
+          const name2id = (maps && maps.name2id) || {};
+          const toId = (k) => name2id[k] || k;
+          const w = Object.assign({}, cfg.workflow);
+          if (w.nodes && typeof w.nodes === "object") w.nodes = wfMapFirstLevelKeys(w.nodes, toId);
+          if (w.variables && typeof w.variables === "object") w.variables = wfMapFirstLevelKeys(w.variables, toId);
+          if (w.uiSchema && typeof w.uiSchema === "object") w.uiSchema = wfMapFirstLevelKeys(w.uiSchema, toId);
+          return Object.assign({}, cfg, { workflow: w });
+        };
+        let finalCfg = parsed || "";
+        if (parsed) {
+          try {
+            const maps = yield wfFetchNodeMaps();
+            finalCfg = resolveById(parsed, maps);
+          } catch (e) {
+            finalCfg = parsed;
+          }
+        }
+        s.workflow || (s.workflow = {});
+        s.workflow.configJson = finalCfg || "";
+        const raw = la(s);
+        // 1) 先把高级配置写入表头 extConfigJson
+        yield q.editHead({ id: g.id, extConfigJson: JSON.stringify(raw) });
+        // 2) 同步关键项到工作流配置表（启用、启动模式、uiMode、processKey），避免只配JSON不生效
+        try {
+          const wf = (finalCfg && finalCfg.workflow) ? finalCfg.workflow : {};
+          const pdKey = wf.processDefinitionKey || wf.process_key || wf.key || wf.process;
+          const uiModeSync = wf.uiMode || wf.ui_mode || "SPLIT";
+          const startModeSync = wf.startMode || wf.workflowStartMode || wf.start_mode || "MANUAL";
+          const enabledSync = (wf.enabled === false || wf.workflowEnabled === 0) ? 0 : 1;
+          if (pdKey) {
+            const list = yield v.get({ url: "/workflow/onlineForm/config/list", params: { cgformHeadId: g.id, processDefinitionKey: pdKey, pageNo: 1, pageSize: 1 } });
+            const recs = (list && (list.records || list)) ? (list.records || list) : [];
+            let cfgId = (Array.isArray(recs) && recs.length > 0) ? recs[0].id : null;
+            const payload = { id: cfgId, cgformHeadId: g.id, processDefinitionKey: pdKey, uiMode: uiModeSync, workflowStartMode: startModeSync, workflowEnabled: enabledSync };
+            if (cfgId) yield v.put({ url: "/workflow/onlineForm/config/edit", data: payload });
+            else yield v.post({ url: "/workflow/onlineForm/config/add", data: payload });
+          }
+        } catch (e) {}
+        c.success("高级配置已保存");
+      });
+    }
+    function wfAdvValidateJson() {
+      try {
+        wfAdvancedJson.value && JSON.parse(wfAdvancedJson.value);
+        c.success("JSON 校验通过");
+      } catch (e) {
+        c.warning("JSON 格式不正确");
+      }
+    }
+    function wfAdvFormatJson() {
+      try {
+        const obj = wfAdvancedJson.value ? JSON.parse(wfAdvancedJson.value) : {};
+        wfAdvancedJson.value = JSON.stringify(obj, null, 2);
+        c.success("已格式化");
+      } catch (e) {
+        c.warning("JSON 格式不正确");
+      }
+    }
     // 节点 formKey 绑定
     const wfNodeLoading = y(!1);
     const wfNodes = y([]);
@@ -304,7 +450,7 @@ const pt = (a, l) => v.post({ url: `/online/cgform/api/doDbSynch/${a}/${l}`, tim
       list.forEach((n) => n.formKey = tn);
       wfNodes.value = list;
       c.success("已将表单Key填充为当前表名");
-    }
+     }
     const { aiTestMode: me, aiTestTable: pe, aiTableList: ge, initVirtualData: Te, tableJsonGetHelper: ye, refreshCacheTableName: ve } = Ia();
     function he() {
       oe({});
@@ -479,21 +625,9 @@ const pt = (a, l) => v.post({ url: `/online/cgform/api/doDbSynch/${a}/${l}`, tim
       }), t.deleteFieldIds = e.dbTable.deleteIds, t.indexs = e.idxTable.tableData, t.deleteIndexIds = e.idxTable.deleteIds, t;
     }
     function Ve(e) {
+      // 取消“外键只允许配置一个”的前端限制：直接通过校验
       return new Promise((t, n) => {
-        let o = e.fields, r = !0;
-        if (o && o.length > 0) {
-          let i = 0;
-          for (let f = 0; f < o.length; f++)
-            if ((o[f].mainField || o[f].mainTable) && (i += 1), i > 1) {
-              r = !1;
-              break;
-            }
-        }
-        r ? t(e) : n({
-          code: -1,
-          msg: "外键只允许配置一个!",
-          error: M
-        });
+        t(e);
       });
     }
     function qe() {
@@ -651,10 +785,15 @@ const pt = (a, l) => v.post({ url: `/online/cgform/api/doDbSynch/${a}/${l}`, tim
       wfUiMode: wfUiMode,
       wfUiSchema: wfUiSchema,
       wfLoading: wfLoading,
+        wfAdvancedJson: wfAdvancedJson,
       onWfLoad: wfLoad,
       onWfSave: wfSave,
       onWfValidateJson: wfValidateJson,
       onWfFormatJson: wfFormatJson,
+        onWfAdvLoad: wfAdvLoad,
+        onWfAdvSave: wfAdvSave,
+        onWfAdvValidateJson: wfAdvValidateJson,
+        onWfAdvFormatJson: wfAdvFormatJson,
       // fields batch
       wfFieldRows: wfFieldRows,
       onWfLoadFields: wfLoadFields,
@@ -982,7 +1121,7 @@ function $a(a, l, c, E, h, g) {
                                 _: 1
                               }),
                               u(oe2),
-                              u(te2, { title: "节点 UI Schema(JSON)", size: "small", bordered: !1 }, {
+                  u(te2, { title: "节点 UI Schema(JSON)", size: "small", bordered: !1 }, {
                                 default: b(() => [
                                   u(Q, {
                                     value: a.wfUiSchema,
@@ -1001,6 +1140,27 @@ function $a(a, l, c, E, h, g) {
                                 _: 1
                               }),
                               u(oe2),
+                  u(te2, { title: "高级配置 JSON（全量）", size: "small", bordered: !1 }, {
+                    default: b(() => [
+                      u(Q, {
+                        value: a.wfAdvancedJson,
+                        "onUpdate:value": (s) => a.wfAdvancedJson = s,
+                        autoSize: { minRows: 12 },
+                        placeholder: "一次性维护 nodes/variables/buttons/uiSchema 等（与文档一致）"
+                      }, null, 8, ["value"]),
+                      u(ne2, { style: { marginTop: "8px" } }, {
+                        default: b(() => [
+                          u(w, { onClick: a.onWfAdvLoad }, { default: b(() => [B("读取高级配置")]), _: 1 }),
+                          u(w, { type: "primary", onClick: a.onWfAdvSave }, { default: b(() => [B("保存高级配置")]), _: 1 }),
+                          u(w, { onClick: a.onWfAdvValidateJson }, { default: b(() => [B("校验JSON")]), _: 1 }),
+                          u(w, { onClick: a.onWfAdvFormatJson }, { default: b(() => [B("格式化")]), _: 1 })
+                        ]),
+                        _: 1
+                      })
+                    ]),
+                    _: 1
+                  }),
+                  u(oe2),
                               u(te2, { title: "节点表单Key绑定（权威：存配置表）", size: "small", bordered: !1 }, {
                                 default: b(() => [
                                   u(ne2, null, { default: b(() => [

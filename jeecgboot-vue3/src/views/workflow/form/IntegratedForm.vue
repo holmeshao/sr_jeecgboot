@@ -22,27 +22,19 @@
           <a-empty v-else description="当前节点无扩展配置" />
         </a-card>
         <a-card title="业务字段（在线表单）" :bordered="false" :loading="bizLoading">
-          <WorkflowOnlineForm
+          <WorkflowOnlineBridge
             ref="workflowFormRef"
             v-if="tableName"
             :table="tableName"
             :dataId="dataId"
-            :taskId="currentTaskId || undefined"
-            :workflowMode="currentTaskId ? 'OPERATE' : (processInstanceId ? 'TRACK' : 'EDIT')"
-            :nodeId="nodeId"
-            :processInstanceId="processInstanceId"
-            :processDefinitionKey="processDefinitionKey"
-            :fieldPermissions="permissions"
-            :enablePermissionControl="true"
-            :autoLoadPermissions="false"
-            :showActions="false"
+            :permissions="permissions"
           />
         </a-card>
       </a-col>
       <a-col :span="6">
         <a-card title="流程信息" :bordered="false">
           <a-descriptions size="small" :column="1">
-            <a-descriptions-item label="表单ID">{{ formId }}</a-descriptions-item>
+            <a-descriptions-item label="表单ID">{{ tableName || formId }}</a-descriptions-item>
             <a-descriptions-item label="流程Key">{{ processDefinitionKey }}</a-descriptions-item>
             <a-descriptions-item label="节点ID">{{ nodeId }}</a-descriptions-item>
             <a-descriptions-item label="实例ID">{{ processInstanceId || '-' }}</a-descriptions-item>
@@ -56,7 +48,7 @@
       <a-space>
         <a-input-textarea v-model:value="comment" :rows="2" placeholder="处理意见（可选）" style="width: 360px" />
         <SmartButtonGroup
-          :formId="formId"
+          :formId="tableName || formId"
           :dataId="dataId"
           :taskId="currentTaskId || undefined"
           @submit="onSubmit"
@@ -158,23 +150,25 @@
 
 <script lang="ts" setup>
 import { onMounted, reactive, ref, computed, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import NodeBlock from '/@/components/jeecg/NodeBlock.vue';
-import WorkflowOnlineForm from '/@/components/jeecg/OnlineForm/WorkflowOnlineForm.vue';
+import WorkflowOnlineBridge from '/@/components/jeecg/OnlineForm/WorkflowOnlineBridge.vue';
 import SmartButtonGroup from '/@/views/workflow/components/SmartButtonGroup.vue';
 import { workflowRenderApi, workflowTaskApi } from '/@/api/workflow';
 import { defHttp } from '/@/utils/http/axios';
 
 const route = useRoute();
+const router = useRouter();
 
 const formId = (route.query.formId as string) || '';
 const processDefinitionKey = (route.query.processDefinitionKey as string) || '';
 const nodeId = (route.query.nodeId as string) || '';
 const processInstanceId = (route.query.processInstanceId as string) || '';
 const currentTaskId = (route.query.taskId as string) || '';
-const tableName = (route.query.tableName as string) || '';
-const dataId = (route.query.dataId as string) || '';
+// 兼容多入口：优先取 query.tableName，其次 formId，再次通用页的 params
+const tableName = (route.query.tableName as string) || (route.query.formId as string) || (route.params.formType as string) || '';
+const dataId = (route.query.dataId as string) || (route.params.dataId as string) || '';
 
 const loading = ref(false);
 const submitting = ref(false);
@@ -283,10 +277,40 @@ async function onSubmit() {
   // 触发在线表单的提交逻辑，确保业务字段与节点扩展一并保存
   const formRef: any = (workflowFormRef as any)?.value;
   try {
-    if (formRef && typeof formRef.handleSubmit === 'function') {
+    // 新增态：直接走后端 /workflow/onlineForm/submitForm（负责保存+按配置启动）
+    if (!currentTaskId) {
+      // 统一走后端事务接口：提交即保存并发起流程
+      if (formRef?.validate) await formRef.validate();
+      // 改为：先让在线运行时真正执行提交，让它在 success 事件里给出最终提交值；
+      // 再将该值（或兜底 getData）传给后端的一次性事务接口
+      let payload: any = {};
+      if (typeof formRef?.submitWithResult === 'function') {
+        payload = await formRef.submitWithResult(6000);
+      }
+      if (!payload || Object.keys(payload).length === 0) {
+        if (typeof formRef?.getData === 'function') payload = await formRef.getData();
+      }
+      if (!payload || Object.keys(payload).length === 0) {
+        message.error('未能采集到表单数据，请检查字段是否已填写');
+        return;
+      }
+
+      const submitUrl = `/workflow/onlineForm/submitForm?tableName=${encodeURIComponent(tableName)}&dataId=${encodeURIComponent(dataId || '')}`;
+      const resp: any = await defHttp.post({ url: submitUrl, data: payload });
+      const r = resp?.result || resp;
+      const action = r?.action || 'form_saved';
+      if (action === 'workflow_started') message.success('已提交并发起流程');
+      else message.success('提交成功');
+      await goBackToList();
+      return;
+    }
+
+    // 办理态：存在当前任务，则在业务提交后完成任务并携带节点扩展变量与表单快照
+    if (formRef?.submit) {
+      await formRef.submit();
+    } else if (formRef?.handleSubmit) {
       await formRef.handleSubmit();
     }
-    // 若存在当前任务，则在业务提交后完成任务并携带节点扩展变量与表单快照
     if (currentTaskId) {
       const variables: Record<string, any> = { ...nodeModel, approve_result: 'pass' };
       const snapshot = {
@@ -295,9 +319,7 @@ async function onSubmit() {
       };
       await workflowTaskApi.complete(currentTaskId, { variables, comment: comment.value, snapshot });
       message.success('已提交并完成当前节点');
-    } else {
-      // 无任务场景退化为审批提交
-      await handleApprove();
+      await goBackToList();
     }
   } catch (e: any) {
     message.error(e?.message || '提交失败');
@@ -306,7 +328,15 @@ async function onSubmit() {
 
 function onSaveDraft() {
   // 草稿保存由业务表单负责，这里仅做提示或透传
-  message.success('已触发保存草稿');
+  const formRef: any = (workflowFormRef as any)?.value;
+  if (formRef?.save) {
+    formRef.save().then(async () => {
+      message.success('草稿已保存');
+      await goBackToList();
+    });
+  } else {
+    message.success('已触发保存草稿');
+  }
 }
 
 onMounted(loadRender);
@@ -356,6 +386,20 @@ async function compareWithCurrent(h: any) {
   } catch (e) {
     compareData.value = null;
     compareOpen.value = false;
+  }
+}
+
+// 跳回在线表单列表（以 tableName 解析 formId）
+async function goBackToList() {
+  try {
+    if (!tableName) return;
+    const resp: any = await defHttp.get({ url: `/online/cgform/api/getFormItemBytbname/${tableName}` });
+    const headId: string = resp?.head?.id || resp?.result?.head?.id || '';
+    if (headId) {
+      await router.replace(`/online/cgformList/${headId}`);
+    }
+  } catch (e) {
+    // ignore
   }
 }
 </script>
