@@ -40,6 +40,7 @@ implements IOnlineBaseExtApi {
     public String cgformPostCrazyForm(String tableName, JSONObject jsonObject) throws Exception {
         String string = c.a();
         jsonObject.put("id", (Object)string);
+        log.info("[OnlineBaseExtApiImpl] addCrazyFormData payload: table={}, keys={}", tableName, jsonObject.keySet());
         this.onlCgformHeadService.addCrazyFormData(tableName, jsonObject);
         return string;
     }
@@ -49,6 +50,7 @@ implements IOnlineBaseExtApi {
         jsonObject.remove((Object)"create_time");
         jsonObject.remove((Object)"update_by");
         jsonObject.remove((Object)"update_time");
+        log.info("[OnlineBaseExtApiImpl] editCrazyFormData payload: table={}, keys={}, sample={}", tableName, jsonObject.keySet(), jsonObject.toJSONString());
         this.onlCgformHeadService.editCrazyFormData(tableName, jsonObject);
         return jsonObject.getString("id");
     }

@@ -30,6 +30,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.jeecg.modules.workflow.entity.OnlCgformWorkflowNode;
 import org.jeecg.modules.workflow.mapper.OnlCgformWorkflowNodeMapper;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
+import org.apache.shiro.authz.annotation.Logical;
 import java.util.HashSet;
 import java.util.Set;
 import com.alibaba.fastjson2.JSON;
@@ -87,19 +88,45 @@ public class WorkflowDefinitionController {
                 query.processDefinitionCategory(category);
             }
             
-            // 仅展示最新版本（默认）。如需查看所有版本，可传 includeAllVersions=true
-            if (!Boolean.TRUE.equals(includeAllVersions)) {
-                query.latestVersion();
-            }
+            // 取出列表后在内存中进行“运行中优先”与“版本选择”处理
+            List<ProcessDefinition> fetched = query.list();
 
-            // 按 key 升序 + 版本号倒序，方便阅读
-            query.orderByProcessDefinitionKey().asc();
-            query.orderByProcessDefinitionVersion().desc();
-            
-            // 分页查询
-            long total = query.count();
-            List<ProcessDefinition> list = query
-                    .listPage((pageNo - 1) * pageSize, pageSize);
+            List<ProcessDefinition> list;
+            long total;
+            if (Boolean.TRUE.equals(includeAllVersions)) {
+                // 显示全部版本：运行中(未挂起)优先，其次 key 升序，版本倒序
+                java.util.Comparator<ProcessDefinition> cmpAll = java.util.Comparator
+                    .comparing((ProcessDefinition d) -> d.isSuspended())
+                    .thenComparing(ProcessDefinition::getKey, java.text.Collator.getInstance(java.util.Locale.CHINA))
+                    .thenComparing((ProcessDefinition d) -> -d.getVersion());
+                fetched.sort(cmpAll);
+                total = fetched.size();
+                int from = Math.max(0, (pageNo - 1) * pageSize);
+                int to = Math.min(fetched.size(), from + pageSize);
+                list = from >= to ? java.util.Collections.emptyList() : fetched.subList(from, to);
+            } else {
+                // 仅展示每个key的一条：优先选择“运行中”的最高版本；如果该key全是挂起，则选择最高版本
+                java.util.Map<String, List<ProcessDefinition>> grouped = fetched.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(ProcessDefinition::getKey));
+                List<ProcessDefinition> picked = new java.util.ArrayList<>();
+                for (Map.Entry<String, List<ProcessDefinition>> e : grouped.entrySet()) {
+                    List<ProcessDefinition> defs = e.getValue();
+                    // 按版本倒序
+                    defs.sort(java.util.Comparator.comparingInt(ProcessDefinition::getVersion).reversed());
+                    ProcessDefinition chosen = defs.stream().filter(d -> !d.isSuspended()).findFirst().orElse(defs.get(0));
+                    picked.add(chosen);
+                }
+                // 运行中优先、key 升序、版本倒序
+                java.util.Comparator<ProcessDefinition> cmpPicked = java.util.Comparator
+                    .comparing((ProcessDefinition d) -> d.isSuspended())
+                    .thenComparing(ProcessDefinition::getKey, java.text.Collator.getInstance(java.util.Locale.CHINA))
+                    .thenComparing((ProcessDefinition d) -> -d.getVersion());
+                picked.sort(cmpPicked);
+                total = picked.size();
+                int from = Math.max(0, (pageNo - 1) * pageSize);
+                int to = Math.min(picked.size(), from + pageSize);
+                list = from >= to ? java.util.Collections.emptyList() : picked.subList(from, to);
+            }
             
             // 转换为前端需要的格式
             List<Map<String, Object>> records = list.stream().map(def -> {
@@ -172,6 +199,123 @@ public class WorkflowDefinitionController {
         } catch (Exception e) {
             log.error("获取流程定义列表失败", e);
             return Result.error("获取流程定义列表失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 编辑标识：基于已发布定义重命名流程key并重新部署（仅此操作绕过“模型版本禁止重复部署”的限制）
+     */
+    @AutoLog(value = "流程定义-编辑标识并重新部署")
+    @Operation(summary = "编辑标识并重新部署", description = "仅替换BPMN中<process id>，以新key重新部署；不会携带modelId/modelVersion，从而不触发重复部署限制")
+    @PostMapping("/{id}/renameAndDeploy")
+    @RequiresPermissions("workflow:definition:rename")
+    public Result<Map<String, Object>> renameAndDeploy(@PathVariable String id,
+                                                       @RequestBody Map<String, Object> body) {
+        try {
+            String newKey = body == null ? null : String.valueOf(body.getOrDefault("newKey", "")).trim();
+            String newName = body == null ? null : String.valueOf(body.getOrDefault("newName", "")).trim();
+            String category = body == null ? null : String.valueOf(body.getOrDefault("category", "")).trim();
+            String description = body == null ? null : String.valueOf(body.getOrDefault("description", "")).trim();
+            // 模型元信息（可选且保留）：按你的部署管控要求，重命名也保留 modelKey/modelVersion
+            String modelId = body == null ? null : String.valueOf(body.getOrDefault("modelId", "")).trim();
+            if (modelId != null && modelId.isEmpty()) modelId = null;
+            String modelKey = body == null ? null : String.valueOf(body.getOrDefault("modelKey", "")).trim();
+            if (modelKey != null && modelKey.isEmpty()) modelKey = null;
+            Integer modelVersion = null;
+            try {
+                Object mv = body == null ? null : body.get("modelVersion");
+                if (mv != null) modelVersion = Integer.valueOf(String.valueOf(mv));
+            } catch (Exception ignore) {}
+            boolean deleteOld = false;
+            try { deleteOld = Boolean.TRUE.equals(body.get("deleteOld")); } catch (Exception ignore) {}
+
+            if (newKey == null || newKey.isEmpty()) {
+                return Result.error("newKey 不能为空");
+            }
+
+            ProcessDefinition definition = repositoryService.getProcessDefinition(id);
+            if (definition == null) {
+                return Result.error("流程定义不存在");
+            }
+
+            // 读取原XML
+            InputStream is = repositoryService.getResourceAsStream(
+                    definition.getDeploymentId(), definition.getResourceName());
+            String xml = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+            // 仅替换第一个 <process id="...">（兼容命名空间前缀）
+            String replaced = xml.replaceFirst("(<(?:\\w+:)?process\\b[^>]*\\bid=\")([^\"]+)(\"[^>]*>)",
+                    "$1" + java.util.regex.Matcher.quoteReplacement(newKey) + "$3");
+
+            // 可选覆盖 name
+            if (newName != null && !newName.isEmpty()) {
+                replaced = overrideProcessNameInXml(replaced, newName);
+            }
+
+            // 部署：保留模型元信息；仅此接口放行“同一模型版本重命名”的场景（不做唯一性校验）
+            String resourceName = (newName != null && !newName.isEmpty() ? newName : newKey) + ".bpmn20.xml";
+            java.io.InputStream in = new java.io.ByteArrayInputStream(replaced.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            org.flowable.engine.repository.DeploymentBuilder builder = repositoryService.createDeployment()
+                    .addInputStream(resourceName, in)
+                    .name(newName != null && !newName.isEmpty() ? newName : (definition.getName() != null ? definition.getName() : newKey))
+                    .category(category);
+
+            // 记录重命名元数据，便于追溯
+            try {
+                JSONObject meta = new JSONObject();
+                if (description != null && !description.isEmpty()) meta.put("description", description);
+                meta.put("renameOperation", true);
+                meta.put("sourceDefinitionId", definition.getId());
+                meta.put("sourceProcessKey", definition.getKey());
+                meta.put("sourceDeploymentId", definition.getDeploymentId());
+                if (modelVersion != null) meta.put("modelVersion", modelVersion);
+                if (modelId != null) meta.put("modelId", modelId);
+                if (modelKey != null) meta.put("modelKey", modelKey);
+                builder.addString("jeecg-deploy-meta.json", meta.toJSONString());
+            } catch (Exception ignore) {}
+
+            Deployment deployment = builder.deploy();
+
+            // 触发部署后事件
+            try {
+                List<ProcessDefinition> processDefinitions = repositoryService.createProcessDefinitionQuery()
+                    .deploymentId(deployment.getId())
+                    .list();
+                for (ProcessDefinition pd : processDefinitions) {
+                    try { workflowEventService.onProcessDefinitionDeployed(pd.getKey()); } catch (Exception e) { log.error("部署后事件失败", e); }
+                }
+            } catch (Exception e) { log.warn("部署后事件处理异常: {}", e.getMessage()); }
+
+            // 读取新定义信息
+            ProcessDefinition newDef = repositoryService.createProcessDefinitionQuery()
+                    .deploymentId(deployment.getId()).latestVersion().singleResult();
+
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("deploymentId", deployment.getId());
+            if (newDef != null) {
+                resp.put("definitionId", newDef.getId());
+                resp.put("key", newDef.getKey());
+                resp.put("version", newDef.getVersion());
+                resp.put("name", newDef.getName());
+                resp.put("modelId", modelId);
+                resp.put("modelKey", modelKey);
+                resp.put("modelVersion", modelVersion);
+            }
+
+            // 可选：删除旧部署（无运行实例时才会删除）
+            if (deleteOld && runtimeService != null) {
+                long running = runtimeService.createProcessInstanceQuery()
+                    .processDefinitionId(definition.getId()).count();
+                if (running == 0L) {
+                    try { repositoryService.deleteDeployment(definition.getDeploymentId()); } catch (Exception e) {
+                        log.warn("删除旧部署失败(已忽略)：{}", e.getMessage());
+                    }
+                }
+            }
+            return Result.OK("已按新标识重新部署", resp);
+        } catch (Exception e) {
+            log.error("编辑标识并重新部署失败", e);
+            return Result.error("编辑标识失败：" + e.getMessage());
         }
     }
 

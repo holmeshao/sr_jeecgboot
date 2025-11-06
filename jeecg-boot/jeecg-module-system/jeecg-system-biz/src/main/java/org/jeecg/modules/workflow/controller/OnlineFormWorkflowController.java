@@ -100,10 +100,35 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
                                    @RequestParam(name = "pageNo", defaultValue = "1") Integer pageNo,
                                    @RequestParam(name = "pageSize", defaultValue = "10") Integer pageSize,
                                    HttpServletRequest req) {
-        QueryWrapper<OnlCgformWorkflowConfig> queryWrapper = QueryGenerator.initQueryWrapper(onlCgformWorkflowConfig, req.getParameterMap());
+        // 说明：此处不再使用 QueryGenerator 自动反射属性，
+        // 避免将实体上的辅助 getter（如 getStatusFieldOrDefault）当作列名，造成非法列错误。
+        QueryWrapper<OnlCgformWorkflowConfig> queryWrapper = new QueryWrapper<>();
+        try {
+            // 白名单方式，仅允许已存在的物理列参与过滤
+            Map<String, String[]> pm = req.getParameterMap();
+            if (pm != null) {
+                String v;
+                v = firstParam(pm.get("cgformHeadId"));
+                if (v != null && v.length() > 0) queryWrapper.eq("cgform_head_id", v);
+                v = firstParam(pm.get("processDefinitionKey"));
+                if (v != null && v.length() > 0) queryWrapper.eq("process_definition_key", v);
+                v = firstParam(pm.get("workflowEnabled"));
+                if (v != null && v.length() > 0) queryWrapper.eq("workflow_enabled", v);
+                v = firstParam(pm.get("status"));
+                if (v != null && v.length() > 0) queryWrapper.eq("status", v);
+                v = firstParam(pm.get("uiMode"));
+                if (v != null && v.length() > 0) queryWrapper.eq("ui_mode", v);
+            }
+        } catch (Exception ignore) {}
+        queryWrapper.orderByDesc("update_time").orderByDesc("create_time");
+
         Page<OnlCgformWorkflowConfig> page = new Page<>(pageNo, pageSize);
         IPage<OnlCgformWorkflowConfig> pageList = service.page(page, queryWrapper);
         return Result.OK(pageList);
+    }
+
+    private static String firstParam(String[] arr) {
+        return (arr != null && arr.length > 0) ? arr[0] : null;
     }
 
     /**
@@ -113,8 +138,19 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
     @Operation(summary = "表单工作流配置-添加", description = "表单工作流配置-添加")
     @PostMapping(value = "/config/add")
     public Result<?> add(@RequestBody OnlCgformWorkflowConfig onlCgformWorkflowConfig) {
-        service.save(onlCgformWorkflowConfig);
-        return Result.OK("添加成功！");
+        // Upsert：同一表单只保留一条配置，按 cgform_head_id 唯一
+        OnlCgformWorkflowConfig exist = service.getOne(
+            new LambdaQueryWrapper<OnlCgformWorkflowConfig>()
+                .eq(OnlCgformWorkflowConfig::getCgformHeadId, onlCgformWorkflowConfig.getCgformHeadId())
+        );
+        if (exist != null) {
+            onlCgformWorkflowConfig.setId(exist.getId());
+            service.updateById(onlCgformWorkflowConfig);
+            return Result.OK("更新成功！");
+        } else {
+            service.save(onlCgformWorkflowConfig);
+            return Result.OK("添加成功！");
+        }
     }
 
     /**
@@ -170,7 +206,7 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
     @AutoLog(value = "表单工作流-基础信息")
     @Operation(summary = "表单工作流-基础信息", description = "返回表单基础信息与流程绑定信息")
     @GetMapping("/form/basic-info")
-    @RequiresPermissions("workflow:form:basic")
+    //@RequiresPermissions("workflow:form:basic")
     public Result<Map<String, Object>> getFormBasicInfo(@RequestParam String tableName,
                                                         @RequestParam String dataId) {
         try {
@@ -190,7 +226,14 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
             Object createTime = row != null ? row.getOrDefault("create_time", null) : null;
             Object updateBy = row != null ? row.getOrDefault("update_by", null) : null;
             Object updateTime = row != null ? row.getOrDefault("update_time", null) : null;
-            Object status = row != null ? row.getOrDefault("bmp_status", null) : null;
+            // 优先 bpmn_status；兼容历史 bmp_status
+            Object status = null;
+            if (row != null) {
+                status = row.getOrDefault("bpmn_status", null);
+                if (status == null) {
+                    status = row.getOrDefault("bmp_status", null);
+                }
+            }
             Object pi = row != null ? row.getOrDefault("process_instance_id", null) : null;
 
             info.put("createBy", createBy);
@@ -560,10 +603,20 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
     @RequiresPermissions("workflow:form:export")
     public org.springframework.http.ResponseEntity<byte[]> exportForm(@RequestBody Map<String, Object> body) {
         try {
-            String tableName = String.valueOf(body.get("formId"));
-            String dataId = String.valueOf(body.get("dataId"));
+            // 统一入参：tableName（兼容历史 formId）
+            Object tn = body.get("tableName");
+            if (tn == null || String.valueOf(tn).trim().isEmpty()) {
+                tn = body.get("formId");
+            }
+            String tableName = tn == null ? null : String.valueOf(tn);
+            String dataId = body.get("dataId") == null ? null : String.valueOf(body.get("dataId"));
             String processInstanceId = body.get("processInstanceId") == null ? null : String.valueOf(body.get("processInstanceId"));
             String format = body.get("format") == null ? "pdf" : String.valueOf(body.get("format")).toLowerCase();
+
+            if (tableName == null || tableName.trim().isEmpty() || dataId == null || dataId.trim().isEmpty()) {
+                return org.springframework.http.ResponseEntity.badRequest()
+                    .body("缺少必要参数：tableName 或 dataId".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
 
             // 1) 表单主数据
             OnlCgformHead head = getCgformHeadByTableName(tableName);

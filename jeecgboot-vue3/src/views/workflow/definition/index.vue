@@ -41,6 +41,7 @@
                 icon: 'ant-design:form-outlined',
                 tooltip: '编辑标识',
                 onClick: openEditKeyModal.bind(null, record),
+                ifShow: hasPermission('workflow:definition:rename'),
               },
               {
                 icon: 'ant-design:history-outlined',
@@ -199,6 +200,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useI18n } from '/@/hooks/web/useI18n';
   import { workflowDefinitionApi, workflowModelApi } from '/@/api/workflow';
+  import { defHttp } from '/@/utils/http/axios';
   import { formatToDateTime } from '/@/utils/dateUtil';
 
   const { t } = useI18n();
@@ -382,21 +384,17 @@
         closeEditKeyModal();
         return;
       }
-      // 1) 拉取XML
-      const xml = await workflowDefinitionApi.getXml(rec.id);
-      const xmlText = typeof xml === 'string' ? xml : (xml.xml || xml.result || '');
-      if (!xmlText) {
-        createMessage.error('未获取到流程XML');
-        return;
-      }
-      // 2) 进行关键处替换：process id/key
-      const oldKey = editKeyForm.oldKey;
-      const newKey = editKeyForm.newKey;
-      let newXml = xmlText
-        .replace(new RegExp(`id="${oldKey}"`, 'g'), `id="${newKey}"`)
-        .replace(new RegExp(`process id=\"${oldKey}\"`, 'g'), `process id="${newKey}"`);
-      // 3) 以新Key重新部署
-      await workflowDefinitionApi.deployByXml({ name: rec.name || newKey, category: rec.category, xml: newXml, modelVersion: rec.modelVersion || undefined, modelId: rec.modelId || undefined });
+      // 改为调用专用后端端点：仅“编辑标识”绕过重复部署校验
+      await defHttp.post({ url: `/workflow/definition/${rec.id}/renameAndDeploy`, data: {
+        newKey: editKeyForm.newKey,
+        newName: rec.name,
+        category: rec.category,
+        // 透传模型元信息，满足“按模型key/模型版本部署”的审计要求
+        modelId: rec.modelId,
+        modelKey: rec.modelKey,
+        modelVersion: rec.modelVersion,
+        deleteOld: false,
+      }});
       createMessage.success('已重部署并更新流程标识');
       closeEditKeyModal();
       reload();

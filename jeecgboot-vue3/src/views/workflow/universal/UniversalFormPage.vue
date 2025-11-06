@@ -863,7 +863,7 @@ function handleVersionCompare(versions: any[]) {
  */
 async function exportForm() {
   try {
-    if (!route.params.formId || !route.params.dataId) {
+    if (!formType.value || !dataId.value) {
       message.warning('表单信息不完整，无法导出');
       return;
     }
@@ -873,8 +873,8 @@ async function exportForm() {
     
     // 构建导出参数
     const exportParams = {
-      formId: route.params.formId,
-      dataId: route.params.dataId,
+      tableName: formType.value,
+      dataId: dataId.value,
       taskId: currentTaskId.value,
       processInstanceId: processInstanceId.value,
       includeHistory: true, // 包含流程历史
@@ -883,7 +883,7 @@ async function exportForm() {
     };
 
     // 生成导出文件名
-    const fileName = `工作流表单_${route.params.dataId}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
+    const fileName = `工作流表单_${dataId.value}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
     
     // 调用导出API
     await handleExportXls(fileName, '/workflow/onlineForm/form/export', exportParams);

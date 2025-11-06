@@ -286,8 +286,12 @@ public class OnlineFormWorkflowService {
              throw new JeecgBootException("该表单未启用工作流");
          }
         
-        // 2. 更新业务表状态
+        // 2. 更新业务表状态（进入处理中）
         updateBusinessStatus(formId, dataId, "PROCESSING");
+        // 业务状态钩子：发起
+        if (workflowStatusHook != null) {
+            try { workflowStatusHook.onWorkflowAction(formId, dataId, "SUBMIT", null); } catch (Exception ignore) {}
+        }
         
         // 3. 启动流程
         ProcessInstance instance = runtimeService.startProcessInstanceByKey(
@@ -299,10 +303,47 @@ public class OnlineFormWorkflowService {
                  // 4. 更新流程实例ID
          updateProcessInstanceId(formId, dataId, instance.getId());
          
-         // 5. 如果启用版本控制，保存初始快照
+        // 5. 如果启用版本控制，保存初始快照
          if (isVersionControlEnabled(config)) {
              saveFormSnapshot(instance.getId(), "start", formData, null);
          }
+
+        // 6. 自动完结第一个节点（发起即办理），便于直达下一环节
+        try {
+            // 简单策略：启动后拿到该实例的第一个活动用户任务并完成            n
+            Task firstTask = taskService.createTaskQuery()
+                .processInstanceId(instance.getId())
+                .active()
+                .singleResult();
+            if (firstTask != null) {
+                // 如无办理人，先认领为当前用户再提交
+                String assignee = firstTask.getAssignee();
+                String current = getCurrentUser();
+                if ((assignee == null || assignee.isEmpty()) && current != null) {
+                    taskService.claim(firstTask.getId(), current);
+                }
+                taskService.complete(firstTask.getId(), formData);
+                log.info("已自动完成首个节点: taskId={}, nodeKey={}, pi={}", firstTask.getId(), firstTask.getTaskDefinitionKey(), instance.getId());
+                if (workflowStatusHook != null) {
+                    try { workflowStatusHook.onWorkflowAction(formId, dataId, "START_NODE_AUTO_COMPLETE", firstTask.getName()); } catch (Exception ignore) {}
+                }
+                // 默认写回业务 status：若无钩子实现，则用节点名做简单文本
+                applyDefaultBusinessStatusIfNoHook(null, formId, dataId, firstTask.getName());
+            }
+        } catch (Exception e) {
+            log.warn("自动完成首节点失败(忽略)：{}", e.getMessage());
+        }
+
+        // 若未自动完成首节点，则回写当前活动节点名称到业务 status（仅在未实现钩子时生效）
+        try {
+            Task active = taskService.createTaskQuery()
+                .processInstanceId(instance.getId())
+                .active()
+                .singleResult();
+            if (active != null) {
+                applyDefaultBusinessStatusIfNoHook(null, formId, dataId, active.getName());
+            }
+        } catch (Exception ignore) {}
         
         log.info("启动表单工作流成功: formId={}, dataId={}, processInstanceId={}", 
                 formId, dataId, instance.getId());
@@ -331,8 +372,8 @@ public class OnlineFormWorkflowService {
              permissionEngine.validateNodePermissions(config.getCgformHeadId(), config.getProcessDefinitionKey(), nodeCode, formData);
          }
          
-         // 3. 更新业务表
-         String dataId = getBusinessDataId(processInstanceId);
+        // 3. 更新业务表（从 businessKey 解析 dataId）
+        String dataId = getBusinessDataId(processInstanceId);
          updateBusinessData(config.getCgformHeadId(), dataId, formData);
          
          // 4. 保存版本快照
@@ -342,6 +383,16 @@ public class OnlineFormWorkflowService {
         
         // 5. 完成任务
         taskService.complete(taskId, formData);
+        if (workflowStatusHook != null) {
+            try { workflowStatusHook.onWorkflowAction(config.getCgformHeadId(), getProcessBusinessKey(processInstanceId).split(":")[1], "APPROVE", nodeCode); } catch (Exception ignore) {}
+        }
+        // 默认业务status：节点名称优先（无名称则回退nodeCode）
+        try {
+            String formIdNode = config.getCgformHeadId();
+            String dataIdNode = getProcessBusinessKey(processInstanceId).split(":")[1];
+            String fallbackName = (task.getName() == null || task.getName().isEmpty()) ? nodeCode : task.getName();
+            applyDefaultBusinessStatusIfNoHook(null, formIdNode, dataIdNode, fallbackName);
+        } catch (Exception ignore) {}
         
         // 6. 更新业务状态
         // 6.1 驳回显式处理（如果表单变量包含驳回标记）
@@ -354,6 +405,10 @@ public class OnlineFormWorkflowService {
                     String formId = parts[0];
                     String dataIdFromBk = parts[1];
                     updateBusinessStatus(formId, dataIdFromBk, "REJECTED");
+                    if (workflowStatusHook != null) {
+                        try { workflowStatusHook.onWorkflowAction(formId, dataIdFromBk, "REJECT", nodeCode); } catch (Exception ignore) {}
+                    }
+                    applyDefaultBusinessStatusIfNoHook(null, formId, dataIdFromBk, "驳回");
                 }
             } else {
                 updateBusinessStatusFromProcess(processInstanceId);
@@ -832,7 +887,7 @@ public class OnlineFormWorkflowService {
         String[] systemFieldPatterns = {
             "id", "create_by", "create_time", "update_by", "update_time",
             "del_flag", "version", "tenant_id", "org_code",
-            "process_instance_id", "bmp_status", "workflow_status"
+            "process_instance_id", "bpmn_status", "workflow_status"
         };
         
         String lowerFieldName = fieldName.toLowerCase();
@@ -885,10 +940,15 @@ public class OnlineFormWorkflowService {
      * 获取业务数据ID
      */
     private String getBusinessDataId(String processInstanceId) {
-        return runtimeService.createProcessInstanceQuery()
-            .processInstanceId(processInstanceId)
-            .singleResult()
-            .getBusinessKey();
+        String businessKey = getProcessBusinessKey(processInstanceId);
+        if (businessKey == null || businessKey.isEmpty()) {
+            return null;
+        }
+        if (businessKey.contains(":")) {
+            String[] parts = businessKey.split(":");
+            return parts.length > 1 ? parts[1] : businessKey;
+        }
+        return businessKey;
     }
     
     /**
@@ -903,7 +963,7 @@ public class OnlineFormWorkflowService {
                 .processInstanceId(processInstanceId)
                 .singleResult();
             
-            String businessKey = getBusinessDataId(processInstanceId);
+            String businessKey = getProcessBusinessKey(processInstanceId);
             if (StringUtils.isEmpty(businessKey)) {
                 log.warn("流程实例 {} 没有关联的业务数据", processInstanceId);
                 return;
@@ -924,6 +984,18 @@ public class OnlineFormWorkflowService {
             if (processInstance == null) {
                 // 流程实例不存在，可能已结束
                 newStatus = "COMPLETED";
+                try {
+                    String businessKeyLocal = getProcessBusinessKey(processInstanceId);
+                    if (businessKeyLocal != null && businessKeyLocal.contains(":")) {
+                        String[] partsLocal = businessKeyLocal.split(":");
+                        String formIdLocal = partsLocal[0];
+                        String dataIdLocal = partsLocal[1];
+                        if (workflowStatusHook != null) {
+                            try { workflowStatusHook.onWorkflowAction(formIdLocal, dataIdLocal, "COMPLETE", null); } catch (Exception ignore) {}
+                        }
+                        applyDefaultBusinessStatusIfNoHook(null, formIdLocal, dataIdLocal, "已完成");
+                    }
+                } catch (Exception ignore) {}
             } else if (processInstance.isSuspended()) {
                 newStatus = "SUSPENDED";
             } else {
@@ -951,9 +1023,13 @@ public class OnlineFormWorkflowService {
                 log.warn("找不到业务数据: formId={}, dataId={}", formId, dataId);
                 return;
             }
-            // 取配置字段名
+            // 取配置字段名（定死 bpmn_status）
             OnlCgformWorkflowConfig config = getWorkflowConfig(formId);
-            String statusField = (config != null ? config.getStatusFieldOrDefault() : "bmp_status");
+            String statusField = "bpmn_status";
+            if (config != null) {
+                String cfg = config.getStatusFieldOrDefault();
+                if (cfg != null && cfg.trim().length() > 0) statusField = cfg;
+            }
             Object oldVal = currentData.get(statusField);
             
             // 钩子：回写前
@@ -968,8 +1044,9 @@ public class OnlineFormWorkflowService {
             // 统一写入 workflow_status（字符串态，便于通用查询）
             currentData.put("workflow_status", status);
 
-            // 写入配置的状态字段：若为 bmp_status，写入字典值0/1/2/3
+            // 写入 bpmn_status 数字值 0/1/2/3（定死）
             Object mapped = mapStatusForStatusField(statusField, status);
+            log.info("状态字段映射: statusField={}, semantic={}, stored={}", statusField, status, mapped);
             currentData.put(statusField, mapped);
             currentData.put("update_time", System.currentTimeMillis());
             currentData.put("update_by", getCurrentUser());
@@ -999,18 +1076,14 @@ public class OnlineFormWorkflowService {
     }
 
     /**
-     * 将语义态映射到具体字段的存储值（bmp_status→数字；其他→原样字符串）
+     * 将语义态映射到具体字段的存储值（仅 bpmn_status 数字写入）
      */
     private Object mapStatusForStatusField(String statusField, String status) {
-        if (statusField == null) return status;
-        String sf = statusField.toLowerCase();
-        if (sf.contains("bmp_status")) {
-            // 数字字典：0草稿 1处理中 2已完成 3驳回
-            if ("DRAFT".equalsIgnoreCase(status)) return 0;
-            if ("IN_PROCESS".equalsIgnoreCase(status) || "PROCESSING".equalsIgnoreCase(status)) return 1;
-            if ("COMPLETED".equalsIgnoreCase(status)) return 2;
-            if ("REJECTED".equalsIgnoreCase(status)) return 3;
-        }
+        // 定死 bpmn_status 数字字典：0草稿 1处理中 2已完成 3驳回
+        if ("DRAFT".equalsIgnoreCase(status)) return 0;
+        if ("IN_PROCESS".equalsIgnoreCase(status) || "PROCESSING".equalsIgnoreCase(status)) return 1;
+        if ("COMPLETED".equalsIgnoreCase(status)) return 2;
+        if ("REJECTED".equalsIgnoreCase(status)) return 3;
         return status;
     }
     
@@ -1065,31 +1138,21 @@ public class OnlineFormWorkflowService {
         try {
             Map<String, Object> businessData = getBusinessData(formId, dataId);
             
-            // 尝试从常见的状态字段获取（含 bmp_status）
-            String[] statusFields = {"workflow_status", "bmp_status", "status", "form_status", "bpm_status"};
-            
-            for (String statusField : statusFields) {
-                Object status = businessData.get(statusField);
-                if (status != null && !StringUtils.isEmpty(status.toString())) {
-                    // bmp_status 的数字态 → 语义态
-                    if ("bmp_status".equalsIgnoreCase(statusField)) {
-                        String s = status.toString();
-                        if ("0".equals(s)) return "DRAFT";
-                        if ("1".equals(s)) return "IN_PROCESS";
-                        if ("2".equals(s)) return "COMPLETED";
-                        if ("3".equals(s)) return "REJECTED";
-                    }
-                    return status.toString();
-                }
+            // 仅从 bpmn_status 推断（定死）
+            Object status = businessData.get("bpmn_status");
+            if (status != null && !StringUtils.isEmpty(status.toString())) {
+                String s = status.toString();
+                if ("0".equals(s)) return "DRAFT";
+                if ("1".equals(s)) return "IN_PROCESS";
+                if ("2".equals(s)) return "COMPLETED";
+                if ("3".equals(s)) return "REJECTED";
             }
-            
-            // 如果没有找到状态字段，检查是否有流程实例ID来判断状态
+            // 如果没有取到数字态，再看是否已有流程实例ID
             Object processInstanceId = businessData.get("process_instance_id");
             if (processInstanceId != null && !StringUtils.isEmpty(processInstanceId.toString())) {
-                return "IN_PROCESS"; // 有流程实例表示在流程中
+                return "IN_PROCESS";
             }
-            
-            return "DRAFT"; // 默认草稿状态
+            return "DRAFT";
             
         } catch (Exception e) {
             log.error("获取业务状态失败: formId={}, dataId={}", formId, dataId, e);
@@ -1222,7 +1285,13 @@ public class OnlineFormWorkflowService {
         
         try {
             // 1. 获取表单配置
-            Result<JSONObject> configResult = getFormConfig(null, null);
+            // 1. 获取表单配置（通过 formId 解析表名，再获取字段元数据）
+            OnlCgformHead head = cgformHeadService.getById(formId);
+            if (head == null) {
+                log.warn("未找到表单配置，跳过必填字段验证: formId={}", formId);
+                return;
+            }
+            Result<JSONObject> configResult = getFormConfig(head.getTableName(), null);
             if (!configResult.isSuccess()) {
                 log.warn("获取表单配置失败，跳过必填字段验证: {}", configResult.getMessage());
                 return;
@@ -1236,19 +1305,20 @@ public class OnlineFormWorkflowService {
             
             // 3. 获取表单字段配置
             JSONObject formConfig = configResult.getResult();
-            JSONObject schema = formConfig.getJSONObject("schema");
-            if (schema == null) {
-                log.debug("表单没有schema配置，跳过必填字段验证");
+            JSONObject fields = formConfig.getJSONObject("fields");
+            if (fields == null || fields.isEmpty()) {
+                log.debug("表单没有字段配置，跳过必填字段验证");
                 return;
             }
             
-            // 4. 验证必填字段
-            for (String fieldKey : schema.keySet()) {
-                JSONObject field = schema.getJSONObject(fieldKey);
-                if (field != null && field.getBooleanValue("required")) {
+            // 4. 验证必填字段（Jeecg Online 约定：isNull == 0 表示必填）
+            for (String fieldKey : fields.keySet()) {
+                JSONObject field = fields.getJSONObject(fieldKey);
+                if (field == null) { continue; }
+                if (field.getIntValue("isNull") == 0) {
                     Object value = businessData.get(fieldKey);
-                    if (value == null || StringUtils.isEmpty(value.toString().trim())) {
-                        String fieldLabel = field.getString("title");
+                    if (value == null || String.valueOf(value).trim().isEmpty()) {
+                        String fieldLabel = field.getString("fieldTxt");
                         throw new JeecgBootException("必填字段 [" + (fieldLabel != null ? fieldLabel : fieldKey) + "] 不能为空");
                     }
                 }
@@ -1270,21 +1340,21 @@ public class OnlineFormWorkflowService {
       * 🎯 判断是否启用工作流
       */
      private boolean isWorkflowEnabled(OnlCgformWorkflowConfig config) {
-         return config != null && config.getWorkflowEnabled() != null && config.getWorkflowEnabled() == 1;
+        return config != null && Boolean.TRUE.equals(config.getWorkflowEnabled());
      }
      
      /**
       * 🎯 判断是否启用版本控制
       */
      private boolean isVersionControlEnabled(OnlCgformWorkflowConfig config) {
-         return config != null && config.getVersionControlEnabled() != null && config.getVersionControlEnabled() == 1;
+        return config != null && Boolean.TRUE.equals(config.getVersionControlEnabled());
      }
      
      /**
       * 🎯 判断是否启用权限控制
       */
      private boolean isPermissionControlEnabled(OnlCgformWorkflowConfig config) {
-         return config != null && config.getPermissionControlEnabled() != null && config.getPermissionControlEnabled() == 1;
+        return config != null && Boolean.TRUE.equals(config.getPermissionControlEnabled());
      }
      
      /**
@@ -1317,18 +1387,77 @@ public class OnlineFormWorkflowService {
       * @param isAdd 是否为新增操作
       * @return 保存结果
       */
-     private Result<String> saveFormData(String formId, String dataId, JSONObject formData, boolean isAdd) {
-         try {
-             // TODO: 这里需要调用JeecgBoot的在线表单API来保存数据
-             // 目前暂时返回成功，实际项目中需要集成在线表单服务
-             log.info("保存表单数据: formId={}, dataId={}, isAdd={}", formId, dataId, isAdd);
-             log.debug("表单数据: {}", formData.toJSONString());
-             
-             return Result.OK("数据保存成功", dataId);
-             
-         } catch (Exception e) {
-             log.error("保存表单数据失败: formId={}, dataId={}", formId, dataId, e);
-             return Result.error("保存表单数据失败: " + e.getMessage());
-         }
-     }
+    private Result<String> saveFormData(String formId, String dataId, JSONObject formData, boolean isAdd) {
+        try {
+            log.info("保存表单数据: formId={}, dataId={}, isAdd={}", formId, dataId, isAdd);
+            log.debug("表单数据: {}", formData.toJSONString());
+
+            // 1) 通过 formId 获取表名
+            OnlCgformHead head = cgformHeadService.getById(formId);
+            if (head == null) {
+                return Result.error("未找到表单配置: " + formId);
+            }
+            String tableName = head.getTableName();
+
+            // 确保包含主键
+            if (!org.springframework.util.StringUtils.hasText(formData.getString("id")) &&
+                org.springframework.util.StringUtils.hasText(dataId)) {
+                formData.put("id", dataId);
+            }
+
+            // 2) 调用 Jeecg Online API 实际落库
+            String retId;
+            if (isAdd) {
+                retId = onlineBaseExtApi.cgformPostCrazyForm(tableName, formData);
+            } else {
+                retId = onlineBaseExtApi.cgformPutCrazyForm(tableName, formData);
+            }
+
+            if (!org.springframework.util.StringUtils.hasText(retId)) {
+                // 有些实现会返回原 id，这里兜底
+                retId = formData.getString("id");
+            }
+            return Result.OK("数据保存成功", retId);
+
+        } catch (Exception e) {
+            log.error("保存表单数据失败: formId={}, dataId={}", formId, dataId, e);
+            return Result.error("保存表单数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 若未实现业务钩子，则按默认策略把业务 status 字段写成人类可读的节点名。
+     * 默认字段名：status（若不存在则跳过）。
+     */
+    private void applyDefaultBusinessStatusIfNoHook(String tableName, String formId, String dataId, String fallbackText) {
+        if (workflowStatusHook != null) return; // 有钩子则不做默认回写
+        try {
+            if (fallbackText == null || fallbackText.isEmpty()) return;
+            OnlCgformHead head = (tableName == null) ? cgformHeadService.getById(formId) : null;
+            String tn = (tableName != null) ? tableName : (head != null ? head.getTableName() : null);
+            if (tn == null) return;
+
+            // 通过字段元数据判断是否存在 'status' 列（不要依赖数据接口返回）
+            boolean hasStatus = false;
+            try {
+                List<OnlCgformField> fields = cgformFieldService.list(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<OnlCgformField>()
+                        .eq(OnlCgformField::getCgformHeadId, formId)
+                        .eq(OnlCgformField::getDbFieldName, "status")
+                );
+                hasStatus = (fields != null && !fields.isEmpty());
+            } catch (Exception ignore) {}
+            if (!hasStatus) return;
+
+            JSONObject update = new JSONObject();
+            update.put("id", dataId);
+            update.put("status", fallbackText);
+            update.put("update_time", System.currentTimeMillis());
+            update.put("update_by", getCurrentUser());
+            log.info("默认回写业务status: formId={}, dataId={}, status={}", formId, dataId, fallbackText);
+            saveFormData(formId, dataId, update, false);
+        } catch (Exception e) {
+            log.warn("默认回写业务status失败: formId={}, dataId={}, err={}", formId, dataId, e.getMessage());
+        }
+    }
  }  

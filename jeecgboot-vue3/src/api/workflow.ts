@@ -4,30 +4,24 @@ import { useMessage } from '/@/hooks/web/useMessage';
 const { createMessage } = useMessage();
 
 enum Api {
-  // 工作流表单API
-  START_WORKFLOW = '/workflow/form/start',
-  SUBMIT_FORM = '/workflow/form/submit',
-  GET_DISPLAY_MODE = '/workflow/form/display-mode',
-  GET_NODE_PERMISSION = '/workflow/form/node-permission',
-  VALIDATE_PERMISSION = '/workflow/form/validate-permission',
-  GET_BASIC_INFO = '/workflow/form/basic-info',
-  GET_WORKFLOW_CONFIG = '/workflow/form/config',
-  SAVE_DRAFT = '/workflow/form/save-draft',
-  GET_VERSION_HISTORY = '/workflow/form/version-history',
-  
-  // 工作流配置API (修正路径 - 后端在jeecg-system中)
+  // 工作流表单（Jeecg System 实现）
+  ONLINE_FORM_SUBMIT = '/workflow/onlineForm/form/submit',
+  ONLINE_FORM_SAVE_DRAFT = '/workflow/onlineForm/form/save-draft',
+  ONLINE_FORM_BASIC_INFO = '/workflow/onlineForm/form/basic-info',
+  ONLINE_FORM_MANUAL_START = '/workflow/onlineForm/form/manual-start',
+
+  // 配置与节点
   WORKFLOW_CONFIG_LIST = '/workflow/onlineForm/config/list',
   WORKFLOW_CONFIG_ADD = '/workflow/onlineForm/config/add',
   WORKFLOW_CONFIG_EDIT = '/workflow/onlineForm/config/edit',
   WORKFLOW_CONFIG_DELETE = '/workflow/onlineForm/config/delete',
-  
-  // 节点权限配置API (修正路径)
+
   NODE_CONFIG_LIST = '/workflow/onlineForm/node/list',
   NODE_CONFIG_ADD = '/workflow/onlineForm/node/add',
   NODE_CONFIG_EDIT = '/workflow/onlineForm/node/edit',
   NODE_CONFIG_DELETE = '/workflow/onlineForm/node/delete',
-  
-  // Flowable 7.0兼容性API
+
+  // Flowable 兼容性/事件
   TRIGGER_DEPLOYMENT_EVENT = '/workflow/triggerDeploymentEvent',
   TRIGGER_ALL_DEPLOYMENT_EVENTS = '/workflow/triggerAllDeploymentEvents',
   CHECK_FLOWABLE7_STATUS = '/workflow/flowable7Status',
@@ -37,98 +31,41 @@ enum Api {
 /**
  * 启动表单工作流
  */
-export const startWorkflow = (params: {
-  formId: string;
-  dataId: string;
-  formData: Record<string, any>;
-}) => {
-  return defHttp.post<string>({
-    url: Api.START_WORKFLOW,
-    params: {
-      formId: params.formId,
-      dataId: params.dataId,
-    },
-    data: params.formData,
-  });
-};
+// 提交/保存草稿（优先走 onlineForm 统一入口）
+export const onlineFormSubmit = (tableName: string, dataId: string, formData: Record<string, any>) =>
+  defHttp.post({ url: Api.ONLINE_FORM_SUBMIT, data: { tableName, dataId, formData } });
+
+export const onlineFormSaveDraft = (tableName: string, dataId: string, formData: Record<string, any>) =>
+  defHttp.post({ url: Api.ONLINE_FORM_SAVE_DRAFT, data: { tableName, dataId, formData } });
 
 /**
  * 提交节点表单
  */
-export const submitForm = (params: {
-  taskId: string;
-  nodeCode: string;
-  formData: Record<string, any>;
-}) => {
-  return defHttp.post<string>({
-    url: Api.SUBMIT_FORM,
-    params: {
-      taskId: params.taskId,
-      nodeCode: params.nodeCode,
-    },
-    data: params.formData,
-  });
-};
+export const submitForm = (params: { taskId: string; nodeCode: string; formData: Record<string, any> }) =>
+  defHttp.post<string>({ url: '/workflow/onlineForm/submit', params: { taskId: params.taskId, nodeCode: params.nodeCode }, data: params.formData });
 
 /**
  * 获取表单显示模式
  */
-export const getDisplayMode = (params: {
-  formId: string;
-  dataId?: string;
-}) => {
-  return defHttp.get<any>({
-    url: Api.GET_DISPLAY_MODE,
-    params,
-  });
-};
+// 历史保留：如仍有使用，可保留空导或转向新的页面逻辑。此处不再暴露 getDisplayMode 旧接口常量
 
 /**
  * 获取节点权限配置
  */
-export const getNodePermission = (params: {
-  formId: string;
-  processDefinitionKey?: string;
-  nodeId: string;
-}) => {
-  return defHttp.get<any>({
-    url: Api.GET_NODE_PERMISSION,
-    params,
-  });
-};
+export const getNodePermission = (params: { formId: string; processDefinitionKey?: string; nodeId: string }) =>
+  defHttp.get<any>({ url: '/workflow/render/node', params });
 
 /**
  * 验证节点权限
  */
-export const validatePermission = (params: {
-  formId: string;
-  processDefinitionKey?: string;
-  nodeId: string;
-  formData: Record<string, any>;
-}) => {
-  return defHttp.post<string>({
-    url: Api.VALIDATE_PERMISSION,
-    params: {
-      formId: params.formId,
-      processDefinitionKey: params.processDefinitionKey,
-      nodeId: params.nodeId,
-    },
-    data: params.formData,
-  });
-};
+export const validatePermission = (params: { formId: string; processDefinitionKey?: string; nodeId: string; formData: Record<string, any> }) =>
+  defHttp.post<string>({ url: '/workflow/render/node/permissionDebug', params: { formId: params.formId, processDefinitionKey: params.processDefinitionKey, nodeId: params.nodeId }, data: params.formData });
 
 /**
  * 获取表单基础信息
  */
-export const getFormBasicInfo = (params: {
-  formId: string;
-  dataId?: string;
-}) => {
-  return defHttp.get<any>({
-    url: Api.GET_BASIC_INFO,
-    params,
-  });
-};
+export const getFormBasicInfo = (tableName: string, dataId: string) =>
+  defHttp.get<any>({ url: Api.ONLINE_FORM_BASIC_INFO, params: { tableName, dataId } });
 
 /**
  * 获取工作流配置
@@ -142,20 +79,8 @@ export const getWorkflowConfig = (formId: string) => {
 /**
  * 保存表单草稿
  */
-export const saveDraft = (params: {
-  formId: string;
-  dataId?: string;
-  formData: Record<string, any>;
-}) => {
-  return defHttp.post<string>({
-    url: Api.SAVE_DRAFT,
-    params: {
-      formId: params.formId,
-      dataId: params.dataId,
-    },
-    data: params.formData,
-  });
-};
+export const saveDraft = (params: { formId: string; dataId?: string; formData: Record<string, any> }) =>
+  onlineFormSaveDraft(params.formId, params.dataId || '', params.formData);
 
 /**
  * 获取版本历史

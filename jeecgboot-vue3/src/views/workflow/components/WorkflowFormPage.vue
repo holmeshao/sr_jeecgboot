@@ -343,7 +343,7 @@
 
       // 构建导出参数
       const exportParams = {
-        formId: props.formId,
+        tableName: props.formId,
         dataId: props.dataId,
         taskId: props.taskId,
         processInstanceId: processInstanceId.value,
@@ -355,7 +355,7 @@
       const fileName = `工作流表单_${formBasicInfo.value?.reportNo || props.dataId}_${dayjs().format('YYYY-MM-DD-HH-mm-ss')}`;
 
       // 调用导出API
-      await handleExportXls(fileName, '/workflow/form/export', exportParams);
+      await handleExportXls(fileName, '/workflow/onlineForm/form/export', exportParams);
 
       message.success('导出成功');
     } catch (error) {

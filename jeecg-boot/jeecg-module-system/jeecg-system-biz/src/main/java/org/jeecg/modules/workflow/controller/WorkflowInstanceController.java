@@ -9,6 +9,7 @@ import org.flowable.engine.RuntimeService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.repository.ProcessDefinition;
+import org.flowable.engine.TaskService;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
@@ -31,6 +32,16 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.Base64;
+import org.flowable.engine.history.HistoricActivityInstance;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.bpmn.model.FlowElementsContainer;
+import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.FlowNode;
+import org.flowable.bpmn.model.GraphicInfo;
+import org.flowable.image.ProcessDiagramGenerator;
+import org.flowable.image.impl.DefaultProcessDiagramGenerator;
 
 /**
  * 工作流程实例管理Controller
@@ -52,6 +63,9 @@ public class WorkflowInstanceController {
     
     @Autowired
     private HistoryService historyService;
+
+    @Autowired
+    private TaskService taskService;
 
     @Autowired(required = false)
     private ProcessEngineConfigurationImpl processEngineConfiguration;
@@ -254,64 +268,244 @@ public class WorkflowInstanceController {
     @GetMapping(value = "/{id}/diagram.png", produces = MediaType.IMAGE_PNG_VALUE)
     public ResponseEntity<byte[]> getInstanceDiagramPng(@PathVariable String id) {
         try {
-            // 解析流程定义
-            String processDefinitionId = null;
-            List<String> activeIds = java.util.Collections.emptyList();
+            byte[] png = generateDiagramBytes(id);
+            if (png == null || png.length == 0) return ResponseEntity.status(500).build();
+            return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(png);
+        } catch (Exception e) {
+            log.error("生成流程图失败, instanceId={}", id, e);
+            return ResponseEntity.status(500).build();
+        }
+    }
 
+    /**
+     * 同一功能返回 Base64（XHR 可见，便于排查/前端控制缓存）
+     */
+    @AutoLog(value = "获取流程图Base64")
+    @Operation(summary = "获取流程图Base64", description = "返回 dataUrl 形式便于前端直接展示")
+    @GetMapping(value = "/{id}/diagram")
+    public Result<Map<String, Object>> getInstanceDiagramBase64(@PathVariable String id) {
+        try {
+            byte[] png = generateDiagramBytes(id);
+            String dataUrl = png == null || png.length == 0 ? "" : "data:image/png;base64," + Base64.getEncoder().encodeToString(png);
+            Map<String, Object> m = new HashMap<>();
+            m.put("dataUrl", dataUrl);
+            log.info("[diagram-base64] instanceId={}, bytes={}KB", id, png == null ? 0 : (png.length / 1024));
+            return Result.OK(m);
+        } catch (Exception e) {
+            log.error("生成流程图Base64失败, instanceId={}", id, e);
+            return Result.error("生成流程图失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 返回该实例对应的 BPMN XML（用于前端 bpmn-js 渲染）
+     */
+    @AutoLog(value = "获取流程BPMN XML")
+    @Operation(summary = "获取流程BPMN XML", description = "按实例ID解析流程定义并返回BPMN XML")
+    @GetMapping(value = "/{id}/bpmn.xml", produces = MediaType.APPLICATION_XML_VALUE)
+    public ResponseEntity<byte[]> getInstanceBpmnXml(@PathVariable String id) {
+        try {
+            String processDefinitionId = null;
             ProcessInstance running = runtimeService.createProcessInstanceQuery()
-                .processInstanceId(id)
-                .singleResult();
+                .processInstanceId(id).singleResult();
             if (running != null) {
                 processDefinitionId = running.getProcessDefinitionId();
-                try {
-                    activeIds = runtimeService.getActiveActivityIds(id);
-                } catch (Exception ignore) {}
             } else {
                 HistoricProcessInstance hp = historyService.createHistoricProcessInstanceQuery()
-                    .processInstanceId(id)
-                    .singleResult();
-                if (hp != null) {
-                    processDefinitionId = hp.getProcessDefinitionId();
-                }
+                    .processInstanceId(id).singleResult();
+                if (hp != null) processDefinitionId = hp.getProcessDefinitionId();
             }
-
-            if (processDefinitionId == null) {
-                return ResponseEntity.notFound().build();
-            }
-
-            BpmnModel model = repositoryService.getBpmnModel(processDefinitionId);
-            if (model == null) {
-                return ResponseEntity.notFound().build();
-            }
-
-            // 使用流程图生成器
-            InputStream in;
-            if (processEngineConfiguration != null && processEngineConfiguration.getProcessDiagramGenerator() != null) {
-                // 字体尽量使用常见中文字体名，避免方框；无法加载时由引擎兜底
-                String font = "宋体";
-                in = processEngineConfiguration.getProcessDiagramGenerator()
-                    .generateDiagram(model, "png", activeIds, java.util.Collections.emptyList(), font, font, font, null, 1.0, false);
-            } else {
-                // 退化：尝试读取部署时的图资源
-                ProcessDefinition def = repositoryService.getProcessDefinition(processDefinitionId);
-                String diagramRes = def != null ? def.getDiagramResourceName() : null;
-                if (diagramRes == null) {
-                    return ResponseEntity.notFound().build();
-                }
-                in = repositoryService.getResourceAsStream(def.getDeploymentId(), diagramRes);
-            }
-
+            if (processDefinitionId == null) return ResponseEntity.notFound().build();
+            ProcessDefinition def = repositoryService.getProcessDefinition(processDefinitionId);
+            if (def == null) return ResponseEntity.notFound().build();
+            String resourceName = def.getResourceName();
+            InputStream in = repositoryService.getResourceAsStream(def.getDeploymentId(), resourceName);
             try (InputStream input = in; ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
                 byte[] buf = new byte[4096];
-                int len;
-                while ((len = input.read(buf)) != -1) {
-                    baos.write(buf, 0, len);
-                }
-                return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(baos.toByteArray());
+                int len; while ((len = input.read(buf)) != -1) baos.write(buf, 0, len);
+                return ResponseEntity.ok().contentType(MediaType.APPLICATION_XML).body(baos.toByteArray());
             }
         } catch (Exception e) {
-            log.error("生成流程图失败", e);
+            log.error("获取BPMN XML失败, instanceId={}", id, e);
             return ResponseEntity.status(500).build();
+        }
+    }
+
+    /** 统一生成PNG字节 */
+    private byte[] generateDiagramBytes(String instanceId) throws Exception {
+        // 解析流程定义 & 活动节点
+        String processDefinitionId = null;
+        List<String> activeIds = new java.util.ArrayList<>();
+
+        ProcessInstance running = runtimeService.createProcessInstanceQuery()
+            .processInstanceId(instanceId).singleResult();
+        if (running != null) {
+            processDefinitionId = running.getProcessDefinitionId();
+            try { activeIds = runtimeService.getActiveActivityIds(instanceId); } catch (Exception ignore) {}
+        } else {
+            HistoricProcessInstance hp = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(instanceId).singleResult();
+            if (hp != null) processDefinitionId = hp.getProcessDefinitionId();
+        }
+        if (processDefinitionId == null) return new byte[0];
+
+        BpmnModel model = repositoryService.getBpmnModel(processDefinitionId);
+        if (model == null) return new byte[0];
+        try {
+            java.util.Collection<org.flowable.bpmn.model.Process> ps = model.getProcesses();
+            log.info("[diagram] pdId={}, processes={}, activeIds={}", processDefinitionId, ps == null ? 0 : ps.size(), activeIds);
+        } catch (Exception ignore) {}
+
+        InputStream in;
+        if (processEngineConfiguration != null && processEngineConfiguration.getProcessDiagramGenerator() != null) {
+            String font = "宋体";
+            in = processEngineConfiguration.getProcessDiagramGenerator()
+                .generateDiagram(model, "png", activeIds, java.util.Collections.emptyList(), font, font, font, null, 1.0, false);
+        } else {
+            ProcessDiagramGenerator generator = new DefaultProcessDiagramGenerator();
+            String font = "宋体";
+            in = generator.generateDiagram(model, "png", activeIds, java.util.Collections.emptyList(), font, font, font, null, 1.0, false);
+        }
+        try (InputStream input = in; ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = input.read(buf)) != -1) baos.write(buf, 0, len);
+            return baos.toByteArray();
+        }
+    }
+
+    /**
+     * 流程图元信息：返回每个节点的坐标、尺寸以及该节点关联的历史任务列表
+     * 便于前端在PNG之上叠加悬浮提示（执行人/起止/耗时等）。
+     */
+    @AutoLog(value = "获取流程图元信息")
+    @Operation(summary = "获取流程图元信息", description = "返回节点bounds与任务执行元信息，供前端叠加气泡")
+    @GetMapping("/{id}/diagram/meta")
+    public Result<Map<String, Object>> getInstanceDiagramMeta(@PathVariable String id) {
+        try {
+            // 解析流程定义ID
+            String processDefinitionId = null;
+            HistoricProcessInstance hp = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(id)
+                .singleResult();
+            if (hp != null) {
+                processDefinitionId = hp.getProcessDefinitionId();
+            } else {
+                ProcessInstance running = runtimeService.createProcessInstanceQuery()
+                    .processInstanceId(id).singleResult();
+                if (running != null) processDefinitionId = running.getProcessDefinitionId();
+            }
+            if (processDefinitionId == null) return Result.error("流程实例不存在");
+
+            BpmnModel model = repositoryService.getBpmnModel(processDefinitionId);
+            if (model == null) return Result.error("流程模型不存在");
+
+            Map<String, Object> resp = new HashMap<>();
+            List<Map<String, Object>> nodes = new ArrayList<>();
+
+            // 收集所有节点的图形信息
+            for (org.flowable.bpmn.model.Process p : model.getProcesses()) {
+                for (FlowElement fe : p.getFlowElements()) {
+                    if (fe instanceof FlowNode) {
+                        String idKey = fe.getId();
+                        GraphicInfo gi = model.getGraphicInfo(idKey);
+                        if (gi == null) continue;
+                        Map<String, Object> n = new HashMap<>();
+                        n.put("id", idKey);
+                        n.put("name", fe.getName());
+                        n.put("type", fe.getClass().getSimpleName());
+                        n.put("x", gi.getX());
+                        n.put("y", gi.getY());
+                        n.put("width", gi.getWidth());
+                        n.put("height", gi.getHeight());
+                        nodes.add(n);
+                    }
+                }
+            }
+
+            // 历史任务信息映射到节点
+            List<Map<String, Object>> tasks = new ArrayList<>();
+            try {
+                List<HistoricTaskInstance> hts = historyService.createHistoricTaskInstanceQuery()
+                    .processInstanceId(id)
+                    .orderByHistoricTaskInstanceStartTime().asc()
+                    .list();
+                for (HistoricTaskInstance t : hts) {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", t.getId());
+                    m.put("nodeId", t.getTaskDefinitionKey());
+                    m.put("name", t.getName());
+                    m.put("assignee", t.getAssignee());
+                    m.put("startTime", t.getStartTime() == null ? null : t.getStartTime().getTime());
+                    m.put("endTime", t.getEndTime() == null ? null : t.getEndTime().getTime());
+                    Long dur = (t.getDurationInMillis() == null ? null : t.getDurationInMillis());
+                    m.put("duration", dur);
+                    // 审核意见（历史评论）
+                    try {
+                        List<org.flowable.engine.task.Comment> cmts = taskService.getTaskComments(t.getId());
+                        List<Map<String, Object>> commentList = new ArrayList<>();
+                        for (org.flowable.engine.task.Comment c : cmts) {
+                            Map<String, Object> cm = new HashMap<>();
+                            cm.put("user", c.getUserId());
+                            cm.put("message", c.getFullMessage());
+                            cm.put("time", c.getTime() == null ? null : c.getTime().getTime());
+                            commentList.add(cm);
+                        }
+                        m.put("comments", commentList);
+                    } catch (Exception ignore) {}
+                    tasks.add(m);
+                }
+            } catch (Exception ignore) {}
+
+            // 活动节点ID数组
+            List<String> activeIds = new ArrayList<>();
+            try { activeIds = runtimeService.getActiveActivityIds(id); } catch (Exception ignore) {}
+
+            // 已完成节点ID集合（用于前端绿色标记）
+            List<String> completedIds = new ArrayList<>();
+            try {
+                List<HistoricActivityInstance> hais = historyService.createHistoricActivityInstanceQuery()
+                    .processInstanceId(id)
+                    .finished()
+                    .orderByHistoricActivityInstanceEndTime().asc()
+                    .list();
+                for (HistoricActivityInstance hai : hais) {
+                    completedIds.add(hai.getActivityId());
+                }
+            } catch (Exception ignore) {}
+
+            // 已执行连线：直接从历史活动中取 activityType=sequenceFlow
+            List<Map<String, Object>> executedFlows = new ArrayList<>();
+            try {
+                List<HistoricActivityInstance> seqs = historyService.createHistoricActivityInstanceQuery()
+                    .processInstanceId(id)
+                    .activityType("sequenceFlow")
+                    .orderByHistoricActivityInstanceStartTime().asc()
+                    .list();
+                for (HistoricActivityInstance s : seqs) {
+                    if (s.getActivityId() != null) {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("id", s.getActivityId());
+                        String nm = s.getActivityName() == null ? "" : s.getActivityName();
+                        // 经验规则：名字含“驳回/退回/拒绝/不通过/否决”等视作驳回
+                        String lower = nm.toLowerCase();
+                        boolean reject = nm.contains("驳回") || nm.contains("退回") || nm.contains("拒绝") || nm.contains("不通过")
+                                || lower.contains("reject") || lower.contains("return") || lower.contains("deny");
+                        m.put("status", reject ? "reject" : "approve");
+                        executedFlows.add(m);
+                    }
+                }
+            } catch (Exception ignore) {}
+
+            resp.put("nodes", nodes);
+            resp.put("tasks", tasks);
+            resp.put("activeIds", activeIds);
+            resp.put("completedIds", completedIds);
+            resp.put("executedFlows", executedFlows);
+            return Result.OK(resp);
+        } catch (Exception e) {
+            log.error("获取流程图元信息失败", e);
+            return Result.error("获取流程图元信息失败: " + e.getMessage());
         }
     }
 

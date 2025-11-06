@@ -55,8 +55,12 @@ const transform: AxiosTransform = {
     const hasSuccess = data && Reflect.has(data, 'code') && (code === ResultEnum.SUCCESS || code === 200);
     if (hasSuccess) {
       if (success && message && options.successMessageMode === 'success') {
-        //信息成功提示
-        createMessage.success(message);
+        // 信息成功提示（规避把大段XML当作提示内容渲染出来）
+        const msgStr = String(message);
+        const looksLikeXml = msgStr.length > 500 && (/^<\?xml/.test(msgStr) || /<bpmn:definitions|<definitions/.test(msgStr));
+        if (!looksLikeXml) {
+          createMessage.success(message);
+        }
       }
       return result;
     }

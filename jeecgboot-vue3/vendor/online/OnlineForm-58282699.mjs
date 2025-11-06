@@ -496,17 +496,27 @@ const me = {
       l(e, n);
     };
     function Tt(e) {
-      Object.keys(e).map((o) => {
-        Array.isArray(e[o]) && e[o].length == 0 && (e[o] = "");
-      }), kt(e);
+      Object.keys(e).map((o) => { Array.isArray(e[o]) && e[o].length == 0 && (e[o] = ""); }), kt(e);
       let t = O.value, n = `${me.optPre}${u.id}?tabletype=${B.value}`;
       t && (n = `${t}?tabletype=${B.value}`), F.value === !0 && (e[Sn] = 1), L.value.field && L.value.value && (e[L.value.field] = L.value.value);
+
+      // 集成模式钩子：若存在全局接管函数，则把已组装好的 e 交给外部处理，并跳过内置提交
+      try {
+        if (typeof window !== 'undefined' && typeof window.__ONLINE_INTEGRATED_SUBMIT__ === 'function') {
+          // 传递必要的上下文信息（只传无敏感、必要字段）
+          const ctx = { formId: u.id, tableName: x.value, isUpdate: S.value }; // 简化上下文
+          Promise.resolve(window.__ONLINE_INTEGRATED_SUBMIT__(e, ctx)).then((hookMsg) => {
+            // 仍然对外抛出 success 事件以保持一致
+            p('success', e);
+          }).finally(() => { E.value = !1; p('close'); });
+          return;
+        }
+      } catch(_) {}
+
       let l = S.value === !0 ? "put" : "post";
       le.request({ url: n, method: l, params: e }, { isTransformResponse: !1 }).then((o) => {
         o.success ? (o.result && (e[wn] = o.result), p("success", e), u.submitTip === !0 && s.success(o.message)) : s.warning(o.message);
-      }).finally(() => {
-        E.value = !1, p("close");
-      });
+      }).finally(() => { E.value = !1, p("close"); });
     }
     function Ct(e, t, n) {
       t && n ? n.vxeProps ? n.setValues([

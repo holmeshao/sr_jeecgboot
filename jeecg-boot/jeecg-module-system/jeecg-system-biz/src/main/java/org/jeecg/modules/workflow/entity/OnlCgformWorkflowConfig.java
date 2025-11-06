@@ -48,17 +48,17 @@ public class OnlCgformWorkflowConfig implements Serializable {
     /**是否启用工作流*/
     @Excel(name = "是否启用工作流", width = 15, dicCode = "yn")
     @Schema(description = "是否启用工作流")
-    private Integer workflowEnabled;
+    private Boolean workflowEnabled;
 
     /**版本控制启用*/
     @Excel(name = "版本控制启用", width = 15, dicCode = "yn")
     @Schema(description = "是否启用版本控制")
-    private Integer versionControlEnabled;
+    private Boolean versionControlEnabled;
 
     /**权限控制启用*/
     @Excel(name = "权限控制启用", width = 15, dicCode = "yn")
     @Schema(description = "是否启用权限控制")
-    private Integer permissionControlEnabled;
+    private Boolean permissionControlEnabled;
 
     /**业务主键字段名*/
     @Excel(name = "业务主键字段名", width = 15)
@@ -125,26 +125,10 @@ public class OnlCgformWorkflowConfig implements Serializable {
 
     // =============== 业务方法 ===============
 
-    /**
-     * 是否启用工作流
-     */
-    public boolean isWorkflowEnabled() {
-        return Integer.valueOf(1).equals(this.workflowEnabled);
-    }
-
-    /**
-     * 是否启用版本控制
-     */
-    public boolean isVersionControlEnabled() {
-        return Integer.valueOf(1).equals(this.versionControlEnabled);
-    }
-
-    /**
-     * 是否启用权限控制
-     */
-    public boolean isPermissionControlEnabled() {
-        return Integer.valueOf(1).equals(this.permissionControlEnabled);
-    }
+    // 注意：避免JavaBeans歧义getter（会被MyBatis/OGNL当作属性），改为非JavaBeans风格的辅助方法
+    public boolean hasWorkflowEnabled() { return Boolean.TRUE.equals(this.workflowEnabled); }
+    public boolean hasVersionControlEnabled() { return Boolean.TRUE.equals(this.versionControlEnabled); }
+    public boolean hasPermissionControlEnabled() { return Boolean.TRUE.equals(this.permissionControlEnabled); }
 
     /**
      * 是否自动启动工作流
@@ -171,14 +155,14 @@ public class OnlCgformWorkflowConfig implements Serializable {
      * 获取状态字段名（带默认值）
      */
     public String getStatusFieldOrDefault() {
-        // 统一默认：bpmn_status
-        return statusField != null ? statusField : "bpmn_status";
+        // 统一默认：bpmn_status；当配置为空字符串时也回退默认
+        return (statusField != null && statusField.trim().length() > 0) ? statusField : "bpmn_status";
     }
 
     /**
      * 获取流程实例字段名（带默认值）
      */
     public String getProcessInstanceFieldOrDefault() {
-        return processInstanceField != null ? processInstanceField : "process_instance_id";
+        return (processInstanceField != null && processInstanceField.trim().length() > 0) ? processInstanceField : "process_instance_id";
     }
 }

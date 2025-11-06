@@ -1925,6 +1925,8 @@
     });
   });
 
+  // （已移除：页面级消息/alert 拦截逻辑，改为在接口处关闭提示）
+
   // 组件卸载
   onBeforeUnmount(() => {
     modeler?.destroy();

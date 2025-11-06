@@ -105,7 +105,12 @@ export const workflowModelApi = {
   createVersion: (modelId: string, data: { xml: string; comment?: string }) =>
     defHttp.post({ url: `/workflow/model/${modelId}/versions`, data }),
   // 获取最新XML
-  getLatestXml: (modelId: string) => defHttp.get({ url: `/workflow/model/${modelId}/xml` }),
+  // 拉取模型最新XML：关闭全局成功提示（有些后台会把XML文本放在message里，导致被当作提示内容弹出）
+  getLatestXml: (modelId: string) => defHttp.get({ url: `/workflow/model/${modelId}/xml` }, {
+    isTransformResponse: false,
+    successMessageMode: 'none',
+    errorMessageMode: 'none',
+  }),
   // 获取版本列表
   listVersions: (modelId: string) => defHttp.get({ url: `/workflow/model/${modelId}/versions` }),
   // 按Key获取模型

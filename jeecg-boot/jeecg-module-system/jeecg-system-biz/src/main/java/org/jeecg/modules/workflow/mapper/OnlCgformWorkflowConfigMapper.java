@@ -31,12 +31,12 @@ public interface OnlCgformWorkflowConfigMapper extends BaseMapper<OnlCgformWorkf
     /**
      * 检查表单是否已配置工作流
      */
-    @Select("SELECT COUNT(1) FROM onl_cgform_workflow_config WHERE cgform_head_id = #{formId} AND workflow_enabled = 1 AND status = 1")
+    @Select("SELECT COUNT(1) FROM onl_cgform_workflow_config WHERE cgform_head_id = #{formId} AND workflow_enabled = true AND status = 1")
     int checkWorkflowEnabled(@Param("formId") String formId);
 
     /**
      * 查询启用了工作流的表单数量
      */
-    @Select("SELECT COUNT(1) FROM onl_cgform_workflow_config WHERE workflow_enabled = 1 AND status = 1")
+    @Select("SELECT COUNT(1) FROM onl_cgform_workflow_config WHERE workflow_enabled = true AND status = 1")
     int countEnabledWorkflows();
 }
