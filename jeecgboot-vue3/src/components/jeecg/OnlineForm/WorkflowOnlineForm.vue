@@ -63,15 +63,31 @@
       
       <!-- 表单操作区域 -->
       <div v-if="showActions && formLoaded" class="form-actions">
-        <slot name="actions" :form-data="formData" :validate="validateForm" :submit="handleSubmit">
-          <!-- 默认操作按钮 -->
+        <slot name="actions" :form-data="formData" :validate="validateForm" :submit="handleSubmit" :render-config="renderConfig">
+          <!-- 根据渲染配置动态显示按钮 -->
           <a-space size="large">
-            <a-button v-if="allowSave" @click="handleSave" :loading="saving">
+            <!-- 分离模式：仅保存按钮 -->
+            <a-button v-if="showSaveOnlyButton" @click="handleSaveOnly" :loading="saving">
+              <SaveOutlined />
+              {{ saveOnlyButtonText }}
+            </a-button>
+            <!-- 分离模式：提交审批按钮 -->
+            <a-button 
+              v-if="showSubmitWorkflowButton" 
+              type="primary" 
+              @click="handleSaveAndSubmit"
+              :loading="submitting"
+            >
+              <SendOutlined />
+              {{ submitWorkflowButtonText }}
+            </a-button>
+            <!-- 兼容旧的 allowSave/allowSubmit 属性 -->
+            <a-button v-if="allowSave && !showSaveOnlyButton" @click="handleSave" :loading="saving">
               <SaveOutlined />
               保存草稿
             </a-button>
             <a-button 
-              v-if="allowSubmit" 
+              v-if="allowSubmit && !showSubmitWorkflowButton" 
               type="primary" 
               @click="handleSubmit"
               :loading="submitting"
@@ -111,6 +127,13 @@ import {
 } from '/@/utils/workflow/lazyLoader';
 import { useWorkflowCache } from '/@/utils/workflow/cacheManager';
 import { getNodePermissionConfig, applyPermissionToFormConfig } from '/@/api/workflow/permission';
+import { 
+  getFormRenderConfig, 
+  saveFormOnly, 
+  saveAndSubmitWorkflow,
+  formModeUtils,
+  type FormRenderConfig 
+} from '/@/api/workflow';
 
 // 组件props - 基于online-loader.vue扩展
 interface Props {
@@ -225,6 +248,14 @@ const isSingleTable = ref(true);
 const permissionConfig = ref<any>({});
 const permissionApplied = ref(false);
 const permissionError = ref<string>('');
+
+// 🎯 表单分离/融合模式渲染配置
+const renderConfig = ref<FormRenderConfig>({
+  mode: 'PURE_FORM',
+  allowEdit: true,
+  hasCurrentTask: false,
+});
+const renderConfigLoading = ref(false);
 
 // 🎯 合并后的权限配置（props权限 + 动态加载权限）
 const finalPermissionConfig = computed(() => {
@@ -722,6 +753,96 @@ const applyFieldPermissions = (permissions: any) => {
   }
 };
 
+// 🎯 加载表单渲染配置（分离/融合模式）
+const loadRenderConfig = async () => {
+  if (!formIdRef.value) return;
+  
+  renderConfigLoading.value = true;
+  try {
+    const config = await getFormRenderConfig({
+      formId: formIdRef.value,
+      tableName: props.table,
+      dataId: props.dataId,
+      taskId: props.taskId,
+    });
+    
+    if (config) {
+      renderConfig.value = config;
+      console.log('🎯 表单渲染配置已加载:', config.mode, config);
+    }
+  } catch (error) {
+    console.error('加载表单渲染配置失败:', error);
+  } finally {
+    renderConfigLoading.value = false;
+  }
+};
+
+// 🎯 分离模式：仅保存
+const handleSaveOnly = async () => {
+  if (saving.value) return;
+  
+  saving.value = true;
+  try {
+    const result = await saveFormOnly(props.table, props.dataId, { ...formData });
+    if (result?.success !== false) {
+      showSuccess(renderConfig.value.saveOnlyButtonText || '保存成功');
+      emit('save', result);
+    }
+  } catch (error: any) {
+    showError(error.message || '保存失败');
+  } finally {
+    saving.value = false;
+  }
+};
+
+// 🎯 分离模式：保存并提交审批
+const handleSaveAndSubmit = async () => {
+  if (submitting.value) return;
+  
+  const isValid = await validateForm();
+  if (!isValid) {
+    showError('请检查表单填写，确保所有必填项已正确填写');
+    return;
+  }
+  
+  submitting.value = true;
+  try {
+    const result = await saveAndSubmitWorkflow(
+      {
+        formId: formIdRef.value,
+        tableName: props.table,
+        dataId: props.dataId,
+      },
+      { ...formData }
+    );
+    if (result?.success !== false) {
+      showSuccess('提交审批成功');
+      emit('submit', result);
+    }
+  } catch (error: any) {
+    showError(error.message || '提交失败');
+  } finally {
+    submitting.value = false;
+  }
+};
+
+// 🎯 计算属性：根据渲染配置决定按钮显示
+const showSaveOnlyButton = computed(() => {
+  return renderConfig.value.allowSaveOnly === true;
+});
+
+const showSubmitWorkflowButton = computed(() => {
+  return renderConfig.value.canStartWorkflow === true;
+});
+
+const saveOnlyButtonText = computed(() => {
+  return renderConfig.value.saveOnlyButtonText || '仅保存';
+});
+
+const submitWorkflowButtonText = computed(() => {
+  return renderConfig.value.workflowButtonText || '提交审批';
+});
+
 const saveFormData = async (isSubmit: boolean = false): Promise<any> => {
   if (!formConfig.value?.head?.id) {
     throw new Error('表单配置无效');
@@ -779,10 +900,15 @@ watch(() => props.table, () => {
 });
 
 // 组件挂载
-// 🎯 初始化时加载表单配置和权限
+// 🎯 初始化时加载表单配置、权限和渲染配置
 onMounted(async () => {
   if (props.table) {
     await loadFormConfig();
+    
+    // 加载表单渲染配置（分离/融合模式）
+    if (formIdRef.value) {
+      await loadRenderConfig();
+    }
     
     // 如果启用权限控制且有节点ID，加载权限配置
     if (props.enablePermissionControl && props.autoLoadPermissions && props.nodeId) {
@@ -811,13 +937,20 @@ defineExpose({
   saveFormData,
   handleSubmit,
   handleSave,
-  // 🎯 权限相关方法
+  // 权限相关方法
   isFieldReadonly,
   isFieldHidden,
   isFieldRequired,
   isFieldEditable,
   finalPermissionConfig,
-  applyFieldPermissions
+  applyFieldPermissions,
+  // 分离/融合模式方法
+  renderConfig,
+  loadRenderConfig,
+  handleSaveOnly,
+  handleSaveAndSubmit,
+  showSaveOnlyButton,
+  showSubmitWorkflowButton,
 });
 </script>
 

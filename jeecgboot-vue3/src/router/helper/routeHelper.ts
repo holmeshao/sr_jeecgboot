@@ -122,6 +122,12 @@ function dynamicImport(dynamicViewsModules: Record<string, () => Promise<Recorda
     const lastIndex = endFlag ? k.length : k.lastIndexOf('.');
     return k.substring(startIndex, lastIndex) === component;
   });
+  // DEBUG: 调试组件加载
+  if (component.includes('tools')) {
+    console.log('[Router Debug] component:', component);
+    console.log('[Router Debug] matchKeys:', matchKeys);
+    console.log('[Router Debug] available tools keys:', keys.filter(k => k.includes('tools')));
+  }
   if (matchKeys?.length === 1) {
     const matchKey = matchKeys[0];
     return dynamicViewsModules[matchKey];

@@ -16,6 +16,8 @@ import org.jeecg.modules.online.cgform.entity.OnlCgformField;
 import org.jeecg.modules.online.cgform.service.IOnlCgformHeadService;
 import org.jeecg.modules.online.cgform.service.IOnlCgformFieldService;
 import org.jeecg.modules.workflow.dto.FormSnapshot;
+import org.jeecg.modules.workflow.dto.FormModeConfig;
+import org.jeecg.modules.workflow.dto.FormRenderConfig;
 import org.jeecg.modules.workflow.entity.OnlCgformWorkflowConfig;
 import org.jeecg.modules.workflow.entity.OnlCgformWorkflowNode;
 import org.jeecg.modules.workflow.engine.OnlineFormPermissionEngine;
@@ -1460,4 +1462,340 @@ public class OnlineFormWorkflowService {
             log.warn("默认回写业务status失败: formId={}, dataId={}, err={}", formId, dataId, e.getMessage());
         }
     }
- }  
+
+    // ============= 🎯 表单分离/融合模式核心方法 =============
+
+    /**
+     * 🎯 获取表单渲染配置（分离/融合模式统一入口）
+     * 
+     * 此方法是前端渲染表单的核心入口，根据工作流配置返回：
+     * - 分离模式(SPLIT)：表单可独立保存，工作流可选启动
+     * - 融合模式(INTEGRATED)：表单随工作流节点变化
+     * - 纯表单模式(PURE_FORM)：无工作流配置
+     * 
+     * @param formId 表单ID
+     * @param dataId 数据ID（可选，新建时为空）
+     * @param taskId 任务ID（可选，有待办任务时传入）
+     * @return FormRenderConfig 渲染配置
+     */
+    public FormRenderConfig getFormRenderConfig(String formId, String dataId, String taskId) {
+        log.info("🎯 获取表单渲染配置: formId={}, dataId={}, taskId={}", formId, dataId, taskId);
+        
+        FormRenderConfig config = new FormRenderConfig();
+        
+        try {
+            // 1. 获取工作流配置
+            OnlCgformWorkflowConfig workflowConfig = getWorkflowConfig(formId);
+            
+            if (workflowConfig == null || !isWorkflowEnabled(workflowConfig)) {
+                // 无工作流配置 = 纯表单模式
+                config.setMode("PURE_FORM");
+                config.setAllowEdit(true);
+                config.setAllowSaveOnly(true);
+                config.setSaveOnlyButtonText("保存");
+                config.setShowWorkflowPanel(false);
+                return config;
+            }
+            
+            // 2. 解析 uiSchemaJson
+            FormModeConfig modeConfig = parseUiSchema(workflowConfig.getUiSchemaJson());
+            String uiMode = workflowConfig.getUiMode();
+            if (!StringUtils.hasText(uiMode)) {
+                uiMode = "SPLIT"; // 默认分离模式
+            }
+            config.setMode(uiMode);
+            config.setProcessDefinitionKey(workflowConfig.getProcessDefinitionKey());
+            
+            // 3. 获取业务状态
+            String businessStatus = "DRAFT";
+            String processInstanceId = null;
+            if (StringUtils.hasText(dataId)) {
+                businessStatus = getBusinessStatus(formId, dataId);
+                processInstanceId = getProcessInstanceId(formId, dataId);
+            }
+            config.setBusinessStatus(businessStatus);
+            config.setProcessInstanceId(processInstanceId);
+            
+            // 4. 根据模式生成渲染配置
+            if ("SPLIT".equalsIgnoreCase(uiMode)) {
+                buildSplitModeConfig(config, workflowConfig, modeConfig, formId, dataId, taskId, businessStatus);
+            } else if ("INTEGRATED".equalsIgnoreCase(uiMode)) {
+                buildIntegratedModeConfig(config, workflowConfig, modeConfig, formId, dataId, taskId, businessStatus);
+            }
+            
+            // 5. 添加版本历史显示标志
+            config.setShowVersionHistory(isVersionControlEnabled(workflowConfig));
+            
+            return config;
+            
+        } catch (Exception e) {
+            log.error("获取表单渲染配置失败: formId={}, dataId={}, taskId={}", formId, dataId, taskId, e);
+            // 发生异常时返回安全的只读配置
+            config.setMode("PURE_FORM");
+            config.setAllowEdit(false);
+            config.setMessage("获取配置失败: " + e.getMessage());
+            return config;
+        }
+    }
+    
+    /**
+     * 构建分离模式配置
+     */
+    private void buildSplitModeConfig(FormRenderConfig config, 
+                                       OnlCgformWorkflowConfig workflowConfig,
+                                       FormModeConfig modeConfig,
+                                       String formId, String dataId, String taskId,
+                                       String businessStatus) {
+        
+        FormModeConfig.SplitConfig splitConfig = modeConfig.getSplitConfigOrDefault();
+        
+        // 判断当前状态
+        boolean hasActiveTask = StringUtils.hasText(taskId);
+        boolean isDraft = "DRAFT".equalsIgnoreCase(businessStatus) || !StringUtils.hasText(businessStatus);
+        boolean isRejected = "REJECTED".equalsIgnoreCase(businessStatus);
+        
+        // 🎯 分离模式核心：草稿态和驳回态可编辑，可仅保存
+        boolean allowEdit = isDraft || (isRejected && splitConfig.isAllowEditAfterReject());
+        config.setAllowEdit(allowEdit || hasActiveTask);
+        
+        // 仅保存按钮（草稿态或驳回态可用）
+        config.setAllowSaveOnly(splitConfig.isAllowSaveOnly() && (isDraft || isRejected));
+        config.setSaveOnlyButtonText(splitConfig.getSaveOnlyButton());
+        
+        // 启动工作流按钮（草稿态可用）
+        config.setCanStartWorkflow(isDraft && isWorkflowEnabled(workflowConfig));
+        config.setWorkflowButtonText(splitConfig.getWorkflowTriggerButton());
+        
+        // 任务处理
+        if (hasActiveTask) {
+            Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+            if (task != null) {
+                config.setHasCurrentTask(true);
+                config.setTaskId(taskId);
+                config.setTaskName(task.getName());
+                config.setNodeId(task.getTaskDefinitionKey());
+                
+                // 获取节点权限
+                FormPermissionConfig permission = permissionEngine.getNodePermission(
+                    formId, workflowConfig.getProcessDefinitionKey(), task.getTaskDefinitionKey());
+                if (permission != null) {
+                    config.setReadonlyFields(permission.getReadonlyFields());
+                    config.setHiddenFields(permission.getHiddenFields());
+                    config.setRequiredFields(permission.getRequiredFields());
+                }
+            }
+        } else {
+            config.setHasCurrentTask(false);
+        }
+        
+        // 工作流面板显示（已启动流程时显示，或草稿态配置允许显示）
+        boolean hasProcess = StringUtils.hasText(config.getProcessInstanceId());
+        config.setShowWorkflowPanel(hasProcess || (isDraft && splitConfig.isShowWorkflowPanelInDraft()));
+        config.setShowProgress(hasProcess);
+    }
+    
+    /**
+     * 构建融合模式配置
+     */
+    private void buildIntegratedModeConfig(FormRenderConfig config,
+                                            OnlCgformWorkflowConfig workflowConfig,
+                                            FormModeConfig modeConfig,
+                                            String formId, String dataId, String taskId,
+                                            String businessStatus) {
+        
+        FormModeConfig.IntegratedConfig integratedConfig = modeConfig.getIntegratedConfigOrDefault();
+        
+        // 获取当前节点
+        String currentNodeId = null;
+        boolean hasActiveTask = StringUtils.hasText(taskId);
+        
+        if (hasActiveTask) {
+            Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+            if (task != null) {
+                currentNodeId = task.getTaskDefinitionKey();
+                config.setHasCurrentTask(true);
+                config.setTaskId(taskId);
+                config.setTaskName(task.getName());
+                config.setNodeId(currentNodeId);
+            }
+        }
+        
+        // 🎯 融合模式核心：根据节点获取UI Schema
+        if (currentNodeId != null && integratedConfig.getNodes() != null) {
+            FormModeConfig.NodeUiSchema nodeSchema = integratedConfig.getNodes().get(currentNodeId);
+            if (nodeSchema != null) {
+                config.setVisibleFields(nodeSchema.getVisibleFields());
+                config.setReadonlyFields(nodeSchema.getReadonlyFields());
+                config.setHiddenFields(nodeSchema.getHiddenFields());
+                config.setRequiredFields(nodeSchema.getRequiredFields());
+                config.setLayout(nodeSchema.getLayout() != null ? nodeSchema.getLayout() : integratedConfig.getDefaultLayout());
+                config.setApprovalPosition(nodeSchema.getApprovalPosition() != null ? 
+                    nodeSchema.getApprovalPosition() : integratedConfig.getDefaultApprovalPosition());
+                config.setApprovalFields(nodeSchema.getApprovalFields());
+                config.setAllowEdit(true);
+            } else {
+                // 节点无配置，使用默认权限引擎
+                FormPermissionConfig permission = permissionEngine.getNodePermission(
+                    formId, workflowConfig.getProcessDefinitionKey(), currentNodeId);
+                if (permission != null) {
+                    config.setReadonlyFields(permission.getReadonlyFields());
+                    config.setHiddenFields(permission.getHiddenFields());
+                    config.setRequiredFields(permission.getRequiredFields());
+                }
+                config.setAllowEdit(true);
+            }
+            
+            // 子表权限
+            if (integratedConfig.getSubtablePermissions() != null) {
+                Map<String, String> subtablePerms = new HashMap<>();
+                String finalNodeId = currentNodeId;
+                integratedConfig.getSubtablePermissions().forEach((tableName, nodePerms) -> {
+                    FormModeConfig.SubtablePermission perm = nodePerms.get(finalNodeId);
+                    if (perm != null) {
+                        subtablePerms.put(tableName, perm.getMode());
+                    }
+                });
+                config.setSubtablePermissions(subtablePerms);
+            }
+        } else {
+            // 无任务：判断是否为草稿态（发起）
+            boolean isDraft = "DRAFT".equalsIgnoreCase(businessStatus) || !StringUtils.hasText(businessStatus);
+            if (isDraft) {
+                // 发起节点，尝试获取 startEvent 配置
+                if (integratedConfig.getNodes() != null) {
+                    FormModeConfig.NodeUiSchema startSchema = integratedConfig.getNodes().get("startEvent");
+                    if (startSchema != null) {
+                        config.setVisibleFields(startSchema.getVisibleFields());
+                        config.setReadonlyFields(startSchema.getReadonlyFields());
+                        config.setHiddenFields(startSchema.getHiddenFields());
+                        config.setRequiredFields(startSchema.getRequiredFields());
+                    }
+                }
+                config.setAllowEdit(true);
+                config.setCanStartWorkflow(true);
+                config.setWorkflowButtonText("提交");
+            } else {
+                // 非草稿且无任务：只读模式
+                config.setAllowEdit(false);
+            }
+        }
+        
+        // 融合模式不单独显示保存按钮（提交即保存）
+        config.setAllowSaveOnly(false);
+        config.setShowWorkflowPanel(true);
+        config.setShowProgress(true);
+    }
+    
+    /**
+     * 解析 uiSchemaJson
+     */
+    private FormModeConfig parseUiSchema(String uiSchemaJson) {
+        if (!StringUtils.hasText(uiSchemaJson)) {
+            return new FormModeConfig();
+        }
+        try {
+            return JSON.parseObject(uiSchemaJson, FormModeConfig.class);
+        } catch (Exception e) {
+            log.warn("解析uiSchemaJson失败: {}", e.getMessage());
+            return new FormModeConfig();
+        }
+    }
+    
+    /**
+     * 🎯 分离模式：仅保存表单数据（不启动工作流）
+     * 
+     * @param tableName 表名
+     * @param dataId 数据ID（新增时为空）
+     * @param formData 表单数据
+     * @return 保存结果，包含 dataId
+     */
+    @Transactional
+    public Result<Map<String, Object>> saveFormOnly(String tableName, String dataId, JSONObject formData) {
+        log.info("🎯 分离模式-仅保存表单: tableName={}, dataId={}", tableName, dataId);
+        
+        try {
+            // 1. 获取表单配置
+            OnlCgformHead cgformHead = cgformHeadService.getOne(
+                new LambdaQueryWrapper<OnlCgformHead>()
+                    .eq(OnlCgformHead::getTableName, tableName)
+            );
+            
+            if (cgformHead == null) {
+                return Result.error("未找到表单配置: " + tableName);
+            }
+            
+            String formId = cgformHead.getId();
+            
+            // 2. 检查工作流配置，确认是分离模式
+            OnlCgformWorkflowConfig workflowConfig = getWorkflowConfig(formId);
+            if (workflowConfig != null && "INTEGRATED".equalsIgnoreCase(workflowConfig.getUiMode())) {
+                return Result.error("融合模式不支持仅保存操作");
+            }
+            
+            // 3. 保持草稿状态
+            formData.put("bpmn_status", 0); // 草稿
+            
+            // 4. 调用保存逻辑
+            return saveDraftForm(tableName, dataId, formData);
+            
+        } catch (Exception e) {
+            log.error("分离模式-仅保存表单失败: tableName={}, dataId={}", tableName, dataId, e);
+            return Result.error("保存失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 🎯 分离模式：保存并提交审批
+     * 
+     * @param formId 表单ID
+     * @param tableName 表名
+     * @param dataId 数据ID（新增时为空）
+     * @param formData 表单数据
+     * @return 提交结果，包含 dataId 和 processInstanceId
+     */
+    @Transactional
+    public Result<Map<String, Object>> saveAndSubmitWorkflow(String formId, String tableName, 
+                                                              String dataId, JSONObject formData) {
+        log.info("🎯 分离模式-保存并提交审批: formId={}, tableName={}, dataId={}", formId, tableName, dataId);
+        
+        try {
+            // 1. 先保存表单数据
+            Result<Map<String, Object>> saveResult = saveDraftForm(tableName, dataId, formData);
+            if (!saveResult.isSuccess()) {
+                return saveResult;
+            }
+            
+            // 2. 获取最终的 dataId
+            String finalDataId = dataId;
+            if (!StringUtils.hasText(finalDataId)) {
+                Map<String, Object> saveData = saveResult.getResult();
+                if (saveData != null && saveData.get("dataId") != null) {
+                    finalDataId = saveData.get("dataId").toString();
+                }
+            }
+            
+            if (!StringUtils.hasText(finalDataId)) {
+                return Result.error("保存成功但无法获取数据ID");
+            }
+            
+            // 3. 获取最新的表单数据用于启动流程
+            Map<String, Object> latestData = getBusinessData(formId, finalDataId);
+            
+            // 4. 启动工作流
+            String processInstanceId = startFormWorkflow(formId, finalDataId, latestData);
+            
+            // 5. 返回结果
+            Map<String, Object> result = new HashMap<>();
+            result.put("dataId", finalDataId);
+            result.put("processInstanceId", processInstanceId);
+            result.put("message", "提交审批成功");
+            
+            return Result.OK(result);
+            
+        } catch (Exception e) {
+            log.error("分离模式-保存并提交审批失败: formId={}, tableName={}, dataId={}", 
+                     formId, tableName, dataId, e);
+            return Result.error("提交审批失败: " + e.getMessage());
+        }
+    }
+}  

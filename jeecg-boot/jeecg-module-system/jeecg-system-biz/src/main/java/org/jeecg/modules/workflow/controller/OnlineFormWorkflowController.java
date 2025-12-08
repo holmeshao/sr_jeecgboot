@@ -15,6 +15,7 @@ import org.jeecg.common.aspect.annotation.AutoLog;
 import org.jeecg.common.system.base.controller.JeecgController;
 import org.jeecg.common.system.query.QueryGenerator;
 import org.jeecg.modules.workflow.model.FormPermissionConfig;
+import org.jeecg.modules.workflow.dto.FormRenderConfig;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
@@ -966,6 +967,121 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
         } catch (Exception e) {
             log.error("触发流程实例启动事件失败：" + processInstanceId, e);
             return Result.error("处理失败：" + e.getMessage());
+        }
+    }
+
+    // ================================== 🎯 表单分离/融合模式 API ==================================
+
+    /**
+     * 🎯 获取表单渲染配置（分离/融合模式统一入口）
+     * 
+     * 前端根据此接口返回的配置决定：
+     * - 表单是否可编辑
+     * - 显示哪些按钮（仅保存/提交审批/审批操作等）
+     * - 字段权限（只读/隐藏/必填）
+     * - 子表权限
+     * 
+     * @param formId 表单ID（可通过 tableName 转换）
+     * @param tableName 表名（与 formId 二选一）
+     * @param dataId 数据ID（新建时为空）
+     * @param taskId 任务ID（有待办任务时传入）
+     */
+    @AutoLog(value = "表单工作流-获取渲染配置")
+    @Operation(summary = "表单工作流-获取渲染配置", description = "获取表单的分离/融合模式渲染配置")
+    @GetMapping("/renderConfig")
+    public Result<FormRenderConfig> getFormRenderConfig(
+            @RequestParam(required = false) String formId,
+            @RequestParam(required = false) String tableName,
+            @RequestParam(required = false) String dataId,
+            @RequestParam(required = false) String taskId) {
+        try {
+            // formId 和 tableName 二选一
+            String finalFormId = formId;
+            if (!org.jeecg.common.util.oConvertUtils.isNotEmpty(finalFormId) && 
+                org.jeecg.common.util.oConvertUtils.isNotEmpty(tableName)) {
+                OnlCgformHead head = getCgformHeadByTableName(tableName);
+                finalFormId = head.getId();
+            }
+            
+            if (!org.jeecg.common.util.oConvertUtils.isNotEmpty(finalFormId)) {
+                return Result.error("请提供 formId 或 tableName");
+            }
+            
+            FormRenderConfig config = onlineFormWorkflowService.getFormRenderConfig(finalFormId, dataId, taskId);
+            return Result.OK(config);
+            
+        } catch (Exception e) {
+            log.error("获取表单渲染配置失败: formId={}, tableName={}, dataId={}, taskId={}", 
+                     formId, tableName, dataId, taskId, e);
+            return Result.error("获取渲染配置失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 🎯 分离模式：仅保存表单（不启动工作流）
+     * 
+     * 此接口允许用户保存表单数据但不触发工作流，适用于：
+     * - 草稿态的多次保存
+     * - 驳回后的编辑保存
+     * - 不需要走审批的独立保存场景
+     */
+    @AutoLog(value = "表单工作流-仅保存")
+    @Operation(summary = "表单工作流-仅保存", description = "分离模式 - 仅保存表单数据，不启动工作流")
+    @PostMapping("/saveOnly")
+    @RequiresPermissions("workflow:form:save")
+    public Result<?> saveFormOnly(@RequestParam String tableName,
+                                  @RequestParam(required = false) String dataId,
+                                  @RequestBody JSONObject formData) {
+        try {
+            return onlineFormWorkflowService.saveFormOnly(tableName, dataId, formData);
+        } catch (Exception e) {
+            log.error("分离模式-仅保存失败: tableName={}, dataId={}", tableName, dataId, e);
+            return Result.error("保存失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 🎯 分离模式：保存并提交审批
+     * 
+     * 此接口先保存表单数据，然后启动工作流，适用于：
+     * - 草稿态提交审批
+     * - 驳回后重新提交
+     */
+    @AutoLog(value = "表单工作流-保存并提交")
+    @Operation(summary = "表单工作流-保存并提交", description = "分离模式 - 保存表单并提交审批")
+    @PostMapping("/saveAndSubmit")
+    @RequiresPermissions("workflow:form:submit")
+    public Result<?> saveAndSubmitWorkflow(@RequestParam String formId,
+                                           @RequestParam String tableName,
+                                           @RequestParam(required = false) String dataId,
+                                           @RequestBody JSONObject formData) {
+        try {
+            return onlineFormWorkflowService.saveAndSubmitWorkflow(formId, tableName, dataId, formData);
+        } catch (Exception e) {
+            log.error("分离模式-保存并提交失败: formId={}, tableName={}, dataId={}", formId, tableName, dataId, e);
+            return Result.error("提交失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 🎯 通过表名获取渲染配置（简化入口）
+     * 
+     * 前端常用场景：只知道表名和数据ID
+     */
+    @AutoLog(value = "表单工作流-通过表名获取渲染配置")
+    @Operation(summary = "表单工作流-通过表名获取渲染配置", description = "根据表名获取表单渲染配置")
+    @GetMapping("/renderConfigByTable")
+    public Result<FormRenderConfig> getFormRenderConfigByTable(
+            @RequestParam String tableName,
+            @RequestParam(required = false) String dataId,
+            @RequestParam(required = false) String taskId) {
+        try {
+            OnlCgformHead head = getCgformHeadByTableName(tableName);
+            FormRenderConfig config = onlineFormWorkflowService.getFormRenderConfig(head.getId(), dataId, taskId);
+            return Result.OK(config);
+        } catch (Exception e) {
+            log.error("通过表名获取渲染配置失败: tableName={}, dataId={}, taskId={}", tableName, dataId, taskId, e);
+            return Result.error("获取渲染配置失败: " + e.getMessage());
         }
     }
 } 

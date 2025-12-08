@@ -1173,10 +1173,41 @@ public class SysBaseApiImpl implements ISysBaseAPI {
 		String username = onlineAuthDTO.getUsername();
 		List<String> possibleUrl = onlineAuthDTO.getPossibleUrl();
 		String onlineFormUrl = onlineAuthDTO.getOnlineFormUrl();
+		
+		// update-begin---author:holmeshao ---date:20241204  for：修复关联表权限校验时用表名查询但菜单配置用表单ID的不一致问题
+		// 扩展 possibleUrl，同时支持表名和表单ID
+		List<String> extendedPossibleUrl = new ArrayList<>(possibleUrl);
+		String currentTableName = null;
+		for (String url : possibleUrl) {
+			// 从URL中提取表名（最后一段）
+			String tableName = url.substring(url.lastIndexOf("/") + 1);
+			currentTableName = tableName;
+			// 如果是表名格式（包含下划线），尝试查询对应的表单ID
+			if (tableName.contains("_")) {
+				try {
+					String formId = getOnlineFormIdByTableName(tableName);
+					if (oConvertUtils.isNotEmpty(formId)) {
+						// 用表单ID替换表名生成新的URL
+						String urlWithId = url.replace(tableName, formId);
+						extendedPossibleUrl.add(urlWithId);
+					}
+				} catch (Exception e) {
+					log.debug("查询表单ID失败: {}", e.getMessage());
+				}
+			}
+		}
+		
+		// 检查是否是公共关联表（无需单独授权）
+		if (currentTableName != null && isPublicLinkTable(currentTableName)) {
+			log.debug("表[{}]配置为公共关联表，跳过权限校验", currentTableName);
+			return true;
+		}
+		// update-end---author:holmeshao ---date:20241204  for：修复关联表权限校验时用表名查询但菜单配置用表单ID的不一致问题
+		
 		//查询菜单
 		LambdaQueryWrapper<SysPermission> query = new LambdaQueryWrapper<SysPermission>();
 		query.eq(SysPermission::getDelFlag, 0);
-		query.in(SysPermission::getUrl, possibleUrl);
+		query.in(SysPermission::getUrl, extendedPossibleUrl);
 		List<SysPermission> permissionList = sysPermissionMapper.selectList(query);
 		if (permissionList == null || permissionList.size() == 0) {
 			//没有配置菜单 找online表单菜单地址
@@ -1202,6 +1233,60 @@ public class SysBaseApiImpl implements ISysBaseAPI {
 			return has;
 		}
 		return true;
+	}
+	
+	/**
+	 * 根据表名查询Online表单ID
+	 * @param tableName 表名
+	 * @return 表单ID，未找到返回null
+	 */
+	private String getOnlineFormIdByTableName(String tableName) {
+		try {
+			String sql = "SELECT id FROM onl_cgform_head WHERE table_name = ? LIMIT 1";
+			List<Map<String, Object>> result = org.jeecg.common.util.SpringContextUtils.getApplicationContext()
+					.getBean(org.springframework.jdbc.core.JdbcTemplate.class)
+					.queryForList(sql, tableName);
+			if (result != null && !result.isEmpty()) {
+				return String.valueOf(result.get(0).get("id"));
+			}
+		} catch (Exception e) {
+			log.debug("根据表名查询表单ID异常: {}", e.getMessage());
+		}
+		return null;
+	}
+	
+	/**
+	 * 公共关联表白名单字典编码
+	 * 配置方式：在「系统管理 - 数据字典」中创建字典，编码为 public_link_tables
+	 * 字典项的「数据值」填写表名，如 common_module_project
+	 */
+	private static final String DICT_PUBLIC_LINK_TABLES = "public_link_tables";
+	
+	/**
+	 * 判断是否是公共关联表（无需单独菜单授权）
+	 * 从数据字典 public_link_tables 中读取配置
+	 * @param tableName 表名
+	 * @return true-公共关联表，跳过权限校验；false-需要正常校验
+	 */
+	private boolean isPublicLinkTable(String tableName) {
+		if (oConvertUtils.isEmpty(tableName)) {
+			return false;
+		}
+		try {
+			// 从字典服务获取公共关联表列表
+			List<DictModel> dictList = sysDictService.queryDictItemsByCode(DICT_PUBLIC_LINK_TABLES);
+			if (dictList != null && !dictList.isEmpty()) {
+				for (DictModel dict : dictList) {
+					if (tableName.equals(dict.getValue())) {
+						log.debug("表[{}]在字典[{}]中配置为公共关联表，跳过权限校验", tableName, DICT_PUBLIC_LINK_TABLES);
+						return true;
+					}
+				}
+			}
+		} catch (Exception e) {
+			log.debug("查询公共关联表字典异常: {}", e.getMessage());
+		}
+		return false;
 	}
 
 	/**

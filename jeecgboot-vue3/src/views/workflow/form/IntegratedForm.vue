@@ -83,24 +83,50 @@
     </a-row>
 
     <div class="footer-actions" v-if="showActionBar">
-      <a-space>
-        <a-input-textarea v-model:value="comment" :rows="2" placeholder="处理意见（可选）" style="width: 360px" v-if="!!currentTaskId" />
-        <SmartButtonGroup
-          :formId="tableName || formId"
-          :dataId="dataId || undefined"
-          :taskId="currentTaskId || undefined"
-          @submit="onSubmit"
-          @approve="handleApprove"
-          @reject="handleReject"
-          @claim="handleClaim"
-          @unclaim="handleUnclaim"
-          @save="onSaveDraft"
-        />
-        <a-button @click="showHistory=true">历史</a-button>
-        <a-popconfirm title="添加处理意见？" ok-text="确定" cancel-text="取消" @confirm="addComment" v-if="!!currentTaskId">
-          <a-button type="dashed">添加意见</a-button>
-        </a-popconfirm>
-      </a-space>
+      <a-spin :spinning="workflowLoading" size="small">
+        <a-space>
+          <!-- 处理意见输入框：仅在有任务且可审批时显示 -->
+          <a-input-textarea 
+            v-model:value="comment" 
+            :rows="2" 
+            placeholder="处理意见（可选）" 
+            style="width: 360px" 
+            v-if="workflowContext?.canApprove || workflowContext?.hasTask" 
+          />
+          
+          <!-- 动态工作流按钮 -->
+          <template v-for="btn in workflowButtons" :key="btn.code">
+            <a-button
+              :type="btn.type === 'danger' ? 'primary' : btn.type"
+              :danger="btn.type === 'danger'"
+              :loading="btn.loading"
+              @click="handleButtonClick(btn.code)"
+            >
+              <template #icon v-if="btn.icon">
+                <component :is="btn.icon" />
+              </template>
+              {{ btn.name }}
+            </a-button>
+          </template>
+          
+          <!-- 历史按钮 -->
+          <a-button @click="showHistory=true" v-if="processInstanceId">
+            <template #icon><HistoryOutlined /></template>
+            历史
+          </a-button>
+          
+          <!-- 添加意见按钮 -->
+          <a-popconfirm 
+            title="添加处理意见？" 
+            ok-text="确定" 
+            cancel-text="取消" 
+            @confirm="addComment" 
+            v-if="workflowContext?.hasTask && comment"
+          >
+            <a-button type="dashed">添加意见</a-button>
+          </a-popconfirm>
+        </a-space>
+      </a-spin>
     </div>
 
     <a-drawer v-model:open="showHistory" title="流程历史" placement="right" width="560">
@@ -200,6 +226,8 @@ import SmartButtonGroup from '/@/views/workflow/components/SmartButtonGroup.vue'
 import { workflowRenderApi, workflowTaskApi } from '/@/api/workflow';
 import { defHttp } from '/@/utils/http/axios';
 import ProcessBpmnViewer from '/@/views/workflow/components/ProcessBpmnViewer.vue';
+import { useWorkflowButtons, createDefaultButtonHandlers, WorkflowTaskContext } from './useWorkflowButtons';
+import { HistoryOutlined } from '@ant-design/icons-vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -253,6 +281,108 @@ const diagramScaleModal = ref<number>(1);
 const diagramModalImgRef = ref<HTMLImageElement | null>(null);
 const diagramModalBoxRef = ref<HTMLDivElement | null>(null);
 
+// ============== 工作流按钮 Hook ==============
+const workflowParams = computed(() => ({
+  taskId: currentTaskId || undefined,
+  processInstanceId: processInstanceId.value || undefined,
+  dataId: dataId || undefined,
+  action: (route.query.action as 'add' | 'edit' | 'view') || undefined,
+}));
+
+// 创建按钮点击处理器
+const buttonClickHandler = createDefaultButtonHandlers({
+  onSubmit: async (ctx) => {
+    await onSubmit();
+  },
+  onSave: async (ctx) => {
+    onSaveDraft();
+  },
+  onApprove: async (ctx) => {
+    await handleApproveWithContext(ctx);
+  },
+  onReject: async (ctx) => {
+    await handleRejectWithContext(ctx);
+  },
+  onClaim: async (ctx) => {
+    await handleClaimWithContext(ctx);
+  },
+  onUnclaim: async (ctx) => {
+    await handleUnclaimWithContext(ctx);
+  },
+  onCancel: () => {
+    goBackToList();
+  },
+  onClose: () => {
+    goBackToList();
+  },
+});
+
+const {
+  context: workflowContext,
+  loading: workflowLoading,
+  buttons: workflowButtons,
+  isReadOnly: workflowReadOnly,
+  handleButtonClick,
+  refresh: refreshWorkflowContext,
+} = useWorkflowButtons(workflowParams, buttonClickHandler);
+
+// 带上下文的审批处理
+async function handleApproveWithContext(ctx: WorkflowTaskContext) {
+  const taskId = ctx.taskId || currentTaskId;
+  if (!taskId) return;
+  submitting.value = true;
+  try {
+    const variables: Record<string, any> = { ...nodeModel, approve_result: 'pass' };
+    await workflowTaskApi.complete(taskId, { variables, comment: comment.value });
+    message.success('已通过');
+    await goBackToList();
+  } catch (e: any) {
+    message.error(e?.message || '操作失败');
+  } finally {
+    submitting.value = false;
+  }
+}
+
+async function handleRejectWithContext(ctx: WorkflowTaskContext) {
+  const taskId = ctx.taskId || currentTaskId;
+  if (!taskId) return;
+  submitting.value = true;
+  try {
+    const variables: Record<string, any> = { ...nodeModel, approve_result: 'reject' };
+    await workflowTaskApi.complete(taskId, { variables, comment: comment.value || '驳回' });
+    message.success('已驳回');
+    await goBackToList();
+  } catch (e: any) {
+    message.error(e?.message || '操作失败');
+  } finally {
+    submitting.value = false;
+  }
+}
+
+async function handleClaimWithContext(ctx: WorkflowTaskContext) {
+  const taskId = ctx.taskId || currentTaskId;
+  if (!taskId) return;
+  try {
+    await defHttp.post({ url: '/workflow/task/claim', data: { taskId } });
+    message.success('已认领');
+    await refreshWorkflowContext();
+  } catch (e: any) {
+    message.error(e?.message || '操作失败');
+  }
+}
+
+async function handleUnclaimWithContext(ctx: WorkflowTaskContext) {
+  const taskId = ctx.taskId || currentTaskId;
+  if (!taskId) return;
+  try {
+    await defHttp.post({ url: '/workflow/task/unclaim', data: { taskId } });
+    message.success('已释放');
+    await refreshWorkflowContext();
+  } catch (e: any) {
+    message.error(e?.message || '操作失败');
+  }
+}
+
 // 支持显式模式控制：?action=add|edit|view（兼容 mode/intent 参数）
 const actionParam = String((route.query.action || route.query.mode || route.query.intent || '') as string).toLowerCase();
 const explicitAction = computed<'add'|'edit'|'view'|''>(() => {
@@ -274,9 +404,8 @@ const isReadonly = computed(() => {
 
   // 办理入口（存在 taskId）再按权限放开
   if (currentTaskId) {
-    const p = permissions.value || {};
-    const editable = p.editableFields || p.editable || [];
-    return !Array.isArray(editable) || editable.length === 0;
+    // 以工作流上下文的只读标记为准（由后端根据任务权限判断）
+    return workflowReadOnly.value;
   }
 
   // 兜底：无 taskId 且无明确意图 → 认为是新增

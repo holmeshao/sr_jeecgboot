@@ -9,18 +9,18 @@ enum Api {
   ONLINE_FORM_SAVE_DRAFT = '/workflow/onlineForm/form/save-draft',
   ONLINE_FORM_BASIC_INFO = '/workflow/onlineForm/form/basic-info',
   ONLINE_FORM_MANUAL_START = '/workflow/onlineForm/form/manual-start',
-
+  
   // 配置与节点
   WORKFLOW_CONFIG_LIST = '/workflow/onlineForm/config/list',
   WORKFLOW_CONFIG_ADD = '/workflow/onlineForm/config/add',
   WORKFLOW_CONFIG_EDIT = '/workflow/onlineForm/config/edit',
   WORKFLOW_CONFIG_DELETE = '/workflow/onlineForm/config/delete',
-
+  
   NODE_CONFIG_LIST = '/workflow/onlineForm/node/list',
   NODE_CONFIG_ADD = '/workflow/onlineForm/node/add',
   NODE_CONFIG_EDIT = '/workflow/onlineForm/node/edit',
   NODE_CONFIG_DELETE = '/workflow/onlineForm/node/delete',
-
+  
   // Flowable 兼容性/事件
   TRIGGER_DEPLOYMENT_EVENT = '/workflow/triggerDeploymentEvent',
   TRIGGER_ALL_DEPLOYMENT_EVENTS = '/workflow/triggerAllDeploymentEvents',
@@ -47,7 +47,8 @@ export const submitForm = (params: { taskId: string; nodeCode: string; formData:
 /**
  * 获取表单显示模式
  */
-// 历史保留：如仍有使用，可保留空导或转向新的页面逻辑。此处不再暴露 getDisplayMode 旧接口常量
+export const getDisplayMode = (params: { formId: string; dataId?: string; taskId?: string }) =>
+  defHttp.get<any>({ url: '/workflow/onlineForm/displayMode', params });
 
 /**
  * 获取节点权限配置
@@ -72,7 +73,8 @@ export const getFormBasicInfo = (tableName: string, dataId: string) =>
  */
 export const getWorkflowConfig = (formId: string) => {
   return defHttp.get<any>({
-    url: `${Api.GET_WORKFLOW_CONFIG}/${formId}`,
+    url: `/workflow/onlineForm/config/queryById`,
+    params: { id: formId },
   });
 };
 
@@ -87,7 +89,7 @@ export const saveDraft = (params: { formId: string; dataId?: string; formData: R
  */
 export const getVersionHistory = (processInstanceId: string) => {
   return defHttp.get<any>({
-    url: Api.GET_VERSION_HISTORY,
+    url: '/workflow/render/history',
     params: { processInstanceId },
   });
 };
@@ -693,4 +695,172 @@ export const workflowRenderApi = {
 export const workflowConfigApi = {
   getUiMode: (params: { cgformHeadId: string; processDefinitionKey?: string }) =>
     defHttp.get<any>({ url: '/workflow/config/uiMode', params }),
+};
+
+// ============ 🎯 表单分离/融合模式 API ============
+
+/**
+ * 表单渲染配置类型
+ */
+export interface FormRenderConfig {
+  /** UI模式：SPLIT / INTEGRATED / PURE_FORM */
+  mode: 'SPLIT' | 'INTEGRATED' | 'PURE_FORM';
+  /** 业务状态 */
+  businessStatus?: string;
+  /** 是否允许编辑 */
+  allowEdit: boolean;
+  /** 是否有当前待办任务 */
+  hasCurrentTask: boolean;
+  /** 当前任务ID */
+  taskId?: string;
+  /** 当前任务名称 */
+  taskName?: string;
+  /** 当前节点ID */
+  nodeId?: string;
+  /** 流程实例ID */
+  processInstanceId?: string;
+  /** 流程定义Key */
+  processDefinitionKey?: string;
+  
+  // 分离模式专属
+  /** 是否允许仅保存 */
+  allowSaveOnly?: boolean;
+  /** 仅保存按钮文本 */
+  saveOnlyButtonText?: string;
+  /** 是否可以启动工作流 */
+  canStartWorkflow?: boolean;
+  /** 启动工作流按钮文本 */
+  workflowButtonText?: string;
+  
+  // 融合模式专属
+  /** 可见字段列表 */
+  visibleFields?: string[];
+  /** 只读字段列表 */
+  readonlyFields?: string[];
+  /** 隐藏字段列表 */
+  hiddenFields?: string[];
+  /** 必填字段列表 */
+  requiredFields?: string[];
+  /** 布局配置 */
+  layout?: string;
+  /** 审批区位置 */
+  approvalPosition?: string;
+  /** 审批区字段 */
+  approvalFields?: string[];
+  /** 子表权限 */
+  subtablePermissions?: Record<string, string>;
+  
+  // 通用
+  /** 字段权限配置 */
+  fieldPermissions?: Record<string, any>;
+  /** 是否显示工作流面板 */
+  showWorkflowPanel?: boolean;
+  /** 是否显示流程进度 */
+  showProgress?: boolean;
+  /** 是否显示版本历史 */
+  showVersionHistory?: boolean;
+  /** 操作按钮列表 */
+  actionButtons?: Record<string, any>[];
+  /** 页面标题 */
+  pageTitle?: string;
+  /** 提示消息 */
+  message?: string;
+  /** 扩展属性 */
+  extras?: Record<string, any>;
+}
+
+/**
+ * 🎯 获取表单渲染配置（分离/融合模式统一入口）
+ */
+export const getFormRenderConfig = (params: {
+  formId?: string;
+  tableName?: string;
+  dataId?: string;
+  taskId?: string;
+}) => defHttp.get<FormRenderConfig>({ url: '/workflow/onlineForm/renderConfig', params });
+
+/**
+ * 🎯 通过表名获取表单渲染配置
+ */
+export const getFormRenderConfigByTable = (params: {
+  tableName: string;
+  dataId?: string;
+  taskId?: string;
+}) => defHttp.get<FormRenderConfig>({ url: '/workflow/onlineForm/renderConfigByTable', params });
+
+/**
+ * 🎯 分离模式：仅保存表单（不启动工作流）
+ */
+export const saveFormOnly = (tableName: string, dataId: string | undefined, formData: Record<string, any>) =>
+  defHttp.post<any>({
+    url: '/workflow/onlineForm/saveOnly',
+    params: { tableName, dataId },
+    data: formData,
+  });
+
+/**
+ * 🎯 分离模式：保存并提交审批
+ */
+export const saveAndSubmitWorkflow = (
+  params: { formId: string; tableName: string; dataId?: string },
+  formData: Record<string, any>
+) =>
+  defHttp.post<any>({
+    url: '/workflow/onlineForm/saveAndSubmit',
+    params,
+    data: formData,
+  });
+
+/**
+ * 表单模式工具类
+ */
+export const formModeUtils = {
+  /**
+   * 判断是否为分离模式
+   */
+  isSplitMode: (config: FormRenderConfig) => config.mode === 'SPLIT',
+
+  /**
+   * 判断是否为融合模式
+   */
+  isIntegratedMode: (config: FormRenderConfig) => config.mode === 'INTEGRATED',
+
+  /**
+   * 判断是否为纯表单模式
+   */
+  isPureFormMode: (config: FormRenderConfig) => config.mode === 'PURE_FORM',
+
+  /**
+   * 判断字段是否只读
+   */
+  isFieldReadonly: (config: FormRenderConfig, fieldName: string) => {
+    if (!config.allowEdit) return true;
+    return config.readonlyFields?.includes(fieldName) || false;
+  },
+
+  /**
+   * 判断字段是否隐藏
+   */
+  isFieldHidden: (config: FormRenderConfig, fieldName: string) => {
+    if (config.hiddenFields?.includes(fieldName)) return true;
+    // 融合模式下，不在可见列表中的字段视为隐藏
+    if (config.mode === 'INTEGRATED' && config.visibleFields?.length) {
+      return !config.visibleFields.includes(fieldName);
+    }
+    return false;
+  },
+
+  /**
+   * 判断字段是否必填
+   */
+  isFieldRequired: (config: FormRenderConfig, fieldName: string) => {
+    return config.requiredFields?.includes(fieldName) || false;
+  },
+
+  /**
+   * 获取子表权限模式
+   */
+  getSubtableMode: (config: FormRenderConfig, subtableName: string) => {
+    return config.subtablePermissions?.[subtableName] || 'EDIT';
+  },
 };

@@ -8,6 +8,7 @@ import P from "./EnhanceJavaModal-d5a93f2a.mjs";
 import z from "./EnhanceSqlModal-984f045d.mjs";
 import Q from "./AuthManagerDrawer-32556109.mjs";
 import Y from "./AuthSetterModal-364f1f67.mjs";
+import Z from "./CgformAddressModal-1131274c.mjs";  // [Fix] 添加缺失的 CgformAddressModal
 import { C as j, u as G } from "./useCgformList-f3cb9156.mjs";
 import { _ as H } from "./index-9e1e1e53.mjs";
 import "/@/components/Icon";
@@ -103,7 +104,8 @@ const K = B({
     EnhanceJavaModal: P,
     EnhanceSqlModal: z,
     AuthManagerDrawer: Q,
-    AuthSetterModal: Y
+    AuthSetterModal: Y,
+    CgformAddressModal: Z  // [Fix] 注册 CgformAddressModal
   },
   setup() {
     const o = j.copy;
@@ -124,7 +126,8 @@ const K = B({
       registerAuthManagerDrawer: d,
       registerAuthSetterModal: h,
       registerCgformModal: f,
-      registerDbToOnlineModal: C
+      registerDbToOnlineModal: C,
+      registerAddressModal: x  // [Fix] 提取 registerAddressModal
     } = G({
       pageType: o,
       designScope: "online-cgform-list",
@@ -154,7 +157,8 @@ const K = B({
       registerAuthSetterModal: h,
       registerTable: D,
       registerCgformModal: f,
-      registerDbToOnlineModal: C
+      registerDbToOnlineModal: C,
+      registerAddressModal: x  // [Fix] 暴露 registerAddressModal
     };
   }
 }), U = {
@@ -165,7 +169,7 @@ const K = B({
   style: { color: "red" }
 };
 function X(o, r, E, A, b, w) {
-  const a = e("a-button"), p = e("TableAction"), l = e("BasicTable"), s = e("CgformModal"), c = e("EnhanceJsModal"), u = e("EnhanceJavaModal"), g = e("EnhanceSqlModal"), d = e("DbToOnlineModal"), h = e("CustomButtonList"), f = e("AuthManagerDrawer"), C = e("AuthSetterModal");
+  const a = e("a-button"), p = e("TableAction"), l = e("BasicTable"), s = e("CgformModal"), c = e("EnhanceJsModal"), u = e("EnhanceJavaModal"), g = e("EnhanceSqlModal"), d = e("DbToOnlineModal"), h = e("CustomButtonList"), f = e("AuthManagerDrawer"), C = e("AuthSetterModal"), x = e("CgformAddressModal");  // [Fix]
   return M(), S(v, null, [
     I("div", {
       class: q(o.prefixCls)
@@ -243,7 +247,8 @@ function X(o, r, E, A, b, w) {
     }, null, 8, ["onRegister", "onSuccess"]),
     t(h, { onRegister: o.registerCustomButtonModal }, null, 8, ["onRegister"]),
     t(f, { onRegister: o.registerAuthManagerDrawer }, null, 8, ["onRegister"]),
-    t(C, { onRegister: o.registerAuthSetterModal }, null, 8, ["onRegister"])
+    t(C, { onRegister: o.registerAuthSetterModal }, null, 8, ["onRegister"]),
+    t(x, { onRegister: o.registerAddressModal }, null, 8, ["onRegister"])  // [Fix] 渲染 CgformAddressModal
   ], 64);
 }
 const Ft = /* @__PURE__ */ H(K, [["render", X]]);
