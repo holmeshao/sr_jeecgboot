@@ -1084,4 +1084,71 @@ public class OnlineFormWorkflowController extends JeecgController<OnlCgformWorkf
             return Result.error("获取渲染配置失败: " + e.getMessage());
         }
     }
+    
+    // ==================== 链式关联接口 ====================
+    
+    @Autowired
+    private org.jeecg.modules.workflow.service.LinkChainService linkChainService;
+    
+    /**
+     * 🎯 解析链式关联值（单个）
+     * 用于表单详情页实时计算派生字段
+     */
+    @AutoLog(value = "链式关联-解析单个值")
+    @Operation(summary = "链式关联-解析单个值", description = "根据来源字段值查询目标表显示值")
+    @GetMapping("/linkChain/resolve")
+    public Result<String> resolveLinkChain(
+            @RequestParam String tableName,
+            @RequestParam String keyField,
+            @RequestParam String keyValue,
+            @RequestParam String resultField) {
+        return linkChainService.resolveLinkChainValue(tableName, keyField, keyValue, resultField);
+    }
+    
+    /**
+     * 🎯 解析多级链式关联值
+     * 支持多级关联查询（如：工单 → 项目 → 用户）
+     */
+    @AutoLog(value = "链式关联-解析多级值")
+    @Operation(summary = "链式关联-解析多级值", description = "支持多级链式关联查询")
+    @PostMapping("/linkChain/resolveMultiLevel")
+    public Result<String> resolveMultiLevelLinkChain(
+            @RequestBody Map<String, Object> body) {
+        String chainConfig = (String) body.get("chainConfig");
+        String initialValue = (String) body.get("initialValue");
+        return linkChainService.resolveMultiLevelLinkChain(chainConfig, initialValue);
+    }
+    
+    /**
+     * 🎯 刷新链式关联字段
+     * 用于手动刷新表单中的所有链式关联字段
+     */
+    @AutoLog(value = "链式关联-刷新字段")
+    @Operation(summary = "链式关联-刷新字段", description = "刷新表单中的所有链式关联字段")
+    @PostMapping("/linkChain/refresh")
+    public Result<Map<String, Object>> refreshLinkChainFields(
+            @RequestBody Map<String, Object> body) {
+        try {
+            String tableName = (String) body.get("tableName");
+            Map<String, Object> formData = (Map<String, Object>) body.get("formData");
+            
+            if (tableName == null || formData == null) {
+                return Result.error("参数不完整");
+            }
+            
+            // 构造单条记录列表
+            List<Map<String, Object>> records = new ArrayList<>();
+            records.add(formData);
+            
+            // 批量填充
+            linkChainService.fillLinkChainFields(tableName, records);
+            
+            // 返回填充后的数据
+            return Result.OK(records.get(0));
+            
+        } catch (Exception e) {
+            log.error("刷新链式关联字段失败", e);
+            return Result.error("刷新失败: " + e.getMessage());
+        }
+    }
 } 

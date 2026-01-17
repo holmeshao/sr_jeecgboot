@@ -511,8 +511,11 @@ export const workflowTaskApi = {
    */
   complete: (taskId: string, data: any) => {
     return defHttp.post<any>({
-      url: `/workflow/task/complete/${taskId}`,
-      data,
+      url: `/workflow/task/complete`,
+      data: {
+        taskId,
+        ...data
+      },
     });
   },
 

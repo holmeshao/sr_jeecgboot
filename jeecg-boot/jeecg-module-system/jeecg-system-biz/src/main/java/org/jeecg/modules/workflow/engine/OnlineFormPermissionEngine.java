@@ -115,6 +115,20 @@ public class OnlineFormPermissionEngine {
                 return null;
             }
 
+            // 优先从 ui_schema_json 中提取节点字段配置
+            OnlCgformWorkflowConfig cfg = workflowConfigService.getByFormAndProcessKey(formId, processDefinitionKey);
+            if (cfg != null && oConvertUtils.isNotEmpty(cfg.getUiSchemaJson())) {
+                try {
+                    FormPermissionConfig uiSchemaPermission = extractPermissionFromUiSchema(cfg.getUiSchemaJson(), nodeId);
+                    if (uiSchemaPermission != null && !uiSchemaPermission.getEditableFields().isEmpty()) {
+                        log.debug("从 uiSchema 提取到节点 {} 的字段权限配置", nodeId);
+                        return uiSchemaPermission;
+                    }
+                } catch (Exception e) {
+                    log.debug("从 uiSchema 提取权限失败: {}", e.getMessage());
+                }
+            }
+
             // 按字段的 fieldExtendJson(workflow) 聚合权限（权威来源）
             List<OnlCgformField> fields = onlCgformFieldService.list(
                 new LambdaQueryWrapper<OnlCgformField>()
@@ -124,18 +138,105 @@ public class OnlineFormPermissionEngine {
 
             FormPermissionConfig aggregated = new FormPermissionConfig();
             for (OnlCgformField f : fields) {
-                FormPermissionConfig cfg = parseFromFieldExtendJson(f, processDefinitionKey, nodeId);
-                if (cfg == null) continue;
-                if (cfg.getEditableFields() != null) aggregated.getEditableFields().addAll(cfg.getEditableFields());
-                if (cfg.getReadonlyFields() != null) aggregated.getReadonlyFields().addAll(cfg.getReadonlyFields());
-                if (cfg.getHiddenFields() != null) aggregated.getHiddenFields().addAll(cfg.getHiddenFields());
-                if (cfg.getRequiredFields() != null) aggregated.getRequiredFields().addAll(cfg.getRequiredFields());
+                FormPermissionConfig cfg2 = parseFromFieldExtendJson(f, processDefinitionKey, nodeId);
+                if (cfg2 == null) continue;
+                if (cfg2.getEditableFields() != null) aggregated.getEditableFields().addAll(cfg2.getEditableFields());
+                if (cfg2.getReadonlyFields() != null) aggregated.getReadonlyFields().addAll(cfg2.getReadonlyFields());
+                if (cfg2.getHiddenFields() != null) aggregated.getHiddenFields().addAll(cfg2.getHiddenFields());
+                if (cfg2.getRequiredFields() != null) aggregated.getRequiredFields().addAll(cfg2.getRequiredFields());
             }
             return aggregated;
         } catch (Exception e) {
             log.debug("聚合 fieldExtendJson(workflow) 失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 从 uiSchema 中提取节点字段权限
+     * 如果节点配置了 uiSchema.fields，则这些字段默认可编辑，其他字段只读
+     */
+    @SuppressWarnings("unchecked")
+    private FormPermissionConfig extractPermissionFromUiSchema(String uiSchemaJson, String nodeId) {
+        try {
+            com.alibaba.fastjson.JSONObject schema = JSON.parseObject(uiSchemaJson);
+            
+            // 尝试多种路径：workflow.uiSchema.{nodeId} 或 uiSchema.{nodeId}
+            com.alibaba.fastjson.JSONObject nodeSchema = null;
+            
+            // 路径1: workflow.uiSchema.{nodeId}
+            com.alibaba.fastjson.JSONObject workflow = schema.getJSONObject("workflow");
+            if (workflow != null) {
+                com.alibaba.fastjson.JSONObject uiSchema = workflow.getJSONObject("uiSchema");
+                if (uiSchema != null) {
+                    nodeSchema = uiSchema.getJSONObject(nodeId);
+                }
+            }
+            
+            // 路径2: uiSchema.{nodeId}
+            if (nodeSchema == null) {
+                com.alibaba.fastjson.JSONObject uiSchema = schema.getJSONObject("uiSchema");
+                if (uiSchema != null) {
+                    nodeSchema = uiSchema.getJSONObject(nodeId);
+                }
+            }
+            
+            if (nodeSchema == null) {
+                return null;
+            }
+            
+            // 提取 fields 配置
+            com.alibaba.fastjson.JSONArray fields = nodeSchema.getJSONArray("fields");
+            if (fields == null || fields.isEmpty()) {
+                return null;
+            }
+            
+            FormPermissionConfig config = new FormPermissionConfig();
+            List<String> editableFields = new ArrayList<>();
+            List<String> requiredFields = new ArrayList<>();
+            
+            for (int i = 0; i < fields.size(); i++) {
+                com.alibaba.fastjson.JSONObject field = fields.getJSONObject(i);
+                String key = field.getString("key");
+                if (oConvertUtils.isNotEmpty(key)) {
+                    editableFields.add(key);
+                    
+                    // 检查是否必填
+                    Boolean required = field.getBoolean("required");
+                    if (Boolean.TRUE.equals(required)) {
+                        requiredFields.add(key);
+                    }
+                }
+            }
+            
+            config.setEditableFields(editableFields);
+            config.setRequiredFields(requiredFields);
+            
+            // 获取所有字段，将不在 editableFields 中的字段设为只读
+            List<String> allFields = getFormFieldNames(schema.getString("formId"));
+            List<String> readonlyFields = allFields.stream()
+                .filter(f -> !editableFields.contains(f))
+                .filter(f -> !isSystemField(f))
+                .collect(java.util.stream.Collectors.toList());
+            config.setReadonlyFields(readonlyFields);
+            
+            log.debug("从 uiSchema 提取权限：可编辑{}个，只读{}个", editableFields.size(), readonlyFields.size());
+            return config;
+            
+        } catch (Exception e) {
+            log.debug("从 uiSchema 提取权限失败: {}", e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * 判断是否为系统字段
+     */
+    private boolean isSystemField(String fieldName) {
+        if (oConvertUtils.isEmpty(fieldName)) {
+            return false;
+        }
+        return fieldName.matches("(id|create_by|create_time|update_by|update_time|del_flag|version|process_instance_id|bmp_status|tenant_id|dept_id)");
     }
 
     /**
